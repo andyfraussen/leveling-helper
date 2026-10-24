@@ -1,0 +1,13 @@
+package com.levelinghelper.model;
+
+public enum AdvanceWhen
+{
+	MANUAL,
+	NEAR_TARGET,
+	BANK_CLOSED,
+	INVENTORY_FULL,
+	INVENTORY_HAS_SPACE,
+	NEAR_AND_EMPTIED,
+	ITEM_GONE,
+	HIGHLIGHT_VISIBLE
+}
