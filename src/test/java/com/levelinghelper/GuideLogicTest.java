@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import net.runelite.api.Skill;
+import net.runelite.api.Quest;
 import net.runelite.api.coords.WorldPoint;
 import org.junit.Assert;
 import org.junit.Test;
@@ -48,6 +49,7 @@ public class GuideLogicTest
 	{
 		List<TrainingMethod> methods = new ArrayList<TrainingMethod>();
 		TrainingMethod.builder(methods, Skill.WOODCUTTING, "Loop")
+			.summary("A test training loop")
 			.levels(1, 99)
 			.modes(AccountMode.F2P)
 			.styles(TrainingStyle.BALANCED)
@@ -169,6 +171,18 @@ public class GuideLogicTest
 			public int combatLevel()
 			{
 				return combat;
+			}
+
+			@Override
+			public boolean questComplete(Quest quest)
+			{
+				return true;
+			}
+
+			@Override
+			public boolean allowWilderness()
+			{
+				return true;
 			}
 		};
 	}

@@ -3,9 +3,14 @@ package com.levelinghelper.data;
 import com.levelinghelper.guide.GuideSteps;
 import com.levelinghelper.model.AccountMode;
 import com.levelinghelper.model.AdvanceWhen;
+import com.levelinghelper.model.RouteRisk;
 import com.levelinghelper.model.TrainingMethod;
 import com.levelinghelper.model.TrainingStyle;
 import java.util.List;
+import net.runelite.api.ItemID;
+import net.runelite.api.NpcID;
+import net.runelite.api.ObjectID;
+import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
 
@@ -99,6 +104,10 @@ final class GatheringMethods
 		{
 			builder.step(GuideSteps.trainWide("Chop the sulliusceps and follow the mushroom when it moves. Bank fossils at the Museum Camp when you want to.", trees, 30, AdvanceWhen.MANUAL, highlights));
 		}
+		if (name.equals("Sulliusceps"))
+		{
+			builder.quest(Quest.BONE_VOYAGE).risk(RouteRisk.DANGEROUS);
+		}
 		builder.save();
 	}
 
@@ -131,14 +140,14 @@ final class GatheringMethods
 			"Iron ore", Spots.AL_KHARID_MINE, "Rocks");
 
 		TrainingMethod.builder(out, Skill.MINING, "Motherlode Mine")
-			.levels(30, 71)
+			.levels(30, 91)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.AFK, TrainingStyle.PROFIT)
 			.priority(3)
 			.xp(60, 35000)
-			.summary("Motherlode Mine is the balanced members method. You mine pay-dirt, dump it in the hopper, and empty the sack at the chest. It is also profit. At 72, move to the upper level. The veins are through the Dwarven Mine east of Falador.")
+			.summary("Motherlode Mine is the balanced members method. You mine pay-dirt, dump it in the hopper, and empty the sack at the chest. It is also profit. At 57, the upper level is available after paying 100 golden nuggets. The veins are through the Dwarven Mine east of Falador.")
 			.wiki("Motherlode Mine")
-			.opt("The upper level at 72 is shorter walks. The Prospector kit is worth buying with golden nuggets.")
+			.opt("The upper level needs 57 Mining and a one-time payment of 100 golden nuggets. The Prospector kit is worth buying with golden nuggets.")
 			.opt("Shooting stars are even more idle and less XP. A friends chat or the group star plugin finds the current star.")
 			.opt("3-tick granite at the Bandit Camp quarry is the sweaty XP method. Bring waterskins or a Circlet of Water. The quarry is at the desert bandit camp.")
 			.loop(2)
@@ -149,12 +158,13 @@ final class GatheringMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.MINING, "Motherlode upper level")
-			.levels(72, 91)
+			.prepare("Buy upper-level access from Prospector Percy for 100 golden nuggets. Stay on the lower level until purchased.")
+			.levels(57, 91)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.AFK, TrainingStyle.PROFIT)
-			.priority(4)
+			.priority(2)
 			.xp(60, 50000)
-			.summary("The upper level of Motherlode Mine is shorter and better from 72 until amethyst at 92. You need 72 Mining to climb up.")
+			.summary("The upper level requires 57 Mining and a one-time payment of 100 golden nuggets. Stay downstairs until you have purchased access. The upper hopper costs another 50 nuggets.")
 			.wiki("Motherlode Mine")
 			.opt("Amethyst at 92 is more idle and less XP, inside the Mining Guild.")
 			.loop(2)
@@ -165,6 +175,9 @@ final class GatheringMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.MINING, "Volcanic Mine")
+			.quest(Quest.BONE_VOYAGE)
+			.risk(RouteRisk.DANGEROUS)
+			.prepare("Check entry with Petrified Pete: 150 Kudos, Museum Camp built and Peter rewards claimed. Each entry costs 30 numulites.")
 			.levels(50, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
@@ -190,7 +203,7 @@ final class GatheringMethods
 			.opt("Stay in Motherlode if you want more XP per hour and do not mind the hopper.")
 			.loop(1)
 			.step(GuideSteps.travel("Enter the Mining Guild from east Falador. The door requires 60 Mining.", Spots.FALADOR_EAST_BANK, 20))
-			.step(GuideSteps.train("Mine the amethyst crystals in the south of the guild. Bank at the chest by the entrance when your inventory is full. Press Bank on this panel to jump back.", Spots.AMETHYST, AdvanceWhen.MANUAL, "Amethyst crystals", "Crystals"))
+			.step(GuideSteps.train("Mine the amethyst crystals in the south of the guild. Bank at the chest by the entrance when your inventory is full. Use the guild bank when full; this route stays on the training step.", Spots.AMETHYST, AdvanceWhen.MANUAL, "Amethyst crystals", "Crystals"))
 			.save();
 	}
 
@@ -217,13 +230,25 @@ final class GatheringMethods
 			.step(GuideSteps.bank(bankOre
 				? "Withdraw your best pickaxe and deposit the ore."
 				: "Withdraw your best pickaxe. Deposit ore if you are banking it.", bank))
-			.step(GuideSteps.travel("Walk to the rocks.", spot, 15, highlights))
-			.step(GuideSteps.train("Mine until the inventory is full.", spot, AdvanceWhen.INVENTORY_FULL, highlights));
+			.step(GuideSteps.travel("Walk to the rocks.", spot, 15, highlights).objectIds(oreIds(name)))
+			.step(GuideSteps.train("Mine until the inventory is full.", spot, AdvanceWhen.INVENTORY_FULL, highlights).objectIds(oreIds(name)));
 		if (!bankOre)
 		{
 			builder.step(GuideSteps.drop("Drop the ore. Shift-click drop is in the game settings. The guide continues when the inventory has space again."));
 		}
 		builder.save();
+	}
+
+	private static int[] oreIds(String name)
+	{
+		switch (name)
+		{
+			case "Iron": return new int[]{ObjectID.IRON_ROCKS, ObjectID.IRON_ROCKS_11365};
+			case "Coal": return new int[]{ObjectID.COAL_ROCKS_11366, ObjectID.COAL_ROCKS_11367};
+			case "Mithril": return new int[]{ObjectID.MITHRIL_ROCKS, ObjectID.MITHRIL_ROCKS_11373};
+			case "Adamantite": return new int[]{ObjectID.ADAMANTITE_ROCKS, ObjectID.ADAMANTITE_ROCKS_11375};
+			default: return new int[]{ObjectID.COPPER_ROCKS_10943, ObjectID.COPPER_ROCKS_11161, ObjectID.TIN_ROCKS_11360, ObjectID.TIN_ROCKS_11361};
+		}
 	}
 
 	private static void fishing(List<TrainingMethod> out)
@@ -236,7 +261,7 @@ final class GatheringMethods
 			"Raw trout", Spots.EDGEVILLE_BANK, "Withdraw a fly fishing rod and a few thousand feathers.", Spots.BARB_FISH, false);
 		fish(out, "Lobsters", 40, 49, AccountMode.F2P, new TrainingStyle[]{TrainingStyle.PROFIT}, 2, 90, 18000,
 			"Lobsters at Musa Point. Bring a lobster pot. The boat from Port Sarim costs 30 coins each way. Bank at Draynor.",
-			"Raw lobster", Spots.DRAYNOR_BANK, "Withdraw a lobster pot and 30 coins for the boat.", Spots.MUSA_POINT, true);
+			"Raw lobster", Spots.DRAYNOR_BANK, "Withdraw a lobster pot and at least 60 coins for the return boat trip.", Spots.MUSA_POINT, true);
 		fish(out, "Swordfish", 50, 99, AccountMode.F2P, new TrainingStyle[]{TrainingStyle.PROFIT}, 3, 100, 20000,
 			"Swordfish at Musa Point are the free-to-play money fish. Bring a harpoon. Bank via the boat to Port Sarim and the Draynor bank.",
 			"Raw swordfish", Spots.DRAYNOR_BANK, "Withdraw a harpoon and coins for the Karamja boat.", Spots.MUSA_POINT, true);
@@ -248,6 +273,9 @@ final class GatheringMethods
 			"Fly fishing at Barbarian Village. This stays the recommendation only until you qualify for barbarian fishing or Tempoross.",
 			"Raw trout", Spots.EDGEVILLE_BANK, "Withdraw a fly fishing rod and feathers.", Spots.BARB_FISH, false);
 		TrainingMethod.builder(out, Skill.FISHING, "Barbarian fishing")
+			.tool("Barbarian rod", ItemID.BARBARIAN_ROD, ItemID.PEARL_BARBARIAN_ROD)
+			.supplies("Feathers, fishing bait, roe, caviar or fish offcuts", 1, ItemID.FEATHER, ItemID.FISHING_BAIT, ItemID.ROE, ItemID.CAVIAR, ItemID.FISH_OFFCUTS)
+			.prepare("Ask Otto about heavy rod fishing before training. Keep bait when dropping fish.")
 			.levels(48, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.AFK)
@@ -255,15 +283,15 @@ final class GatheringMethods
 			.req(Skill.AGILITY, 15)
 			.req(Skill.STRENGTH, 15)
 			.xp(50, 55000)
-			.summary("Barbarian fishing at Otto's Grotto gives Fishing, Strength, and Agility XP. You need Barbarian Training started with Otto, 48 Fishing, 15 Agility, and 15 Strength. Use a heavy rod. Drop the leaping fish. Cut the ones that give Strength or Agility if you want those skills too.")
+			.summary("Barbarian fishing at Otto's Grotto gives Fishing, Strength, and Agility XP. You need Barbarian Training started with Otto, 48 Fishing, 15 Agility, and 15 Strength. Use a heavy rod. Drop the leaping fish. Strength and Agility XP is awarded when catching the fish; a knife can turn fish into bait.")
 			.wiki("Barbarian Fishing")
 			.opt("Sea Slug and Fishing Contest are worth doing before this grind.")
 			.opt("Tempoross is the minigame alternative and gives fish rewards. Switch the style to Fastest XP.")
 			.loop(1)
-			.step(GuideSteps.bank("Withdraw a barbarian rod. Feathers are not required for leaping fish. Drop any leftover fish.", Spots.EDGEVILLE_BANK))
+			.step(GuideSteps.bank("Withdraw a barbarian rod and plenty of feathers or fishing bait. Drop leftover fish, keeping the rod and bait.", Spots.EDGEVILLE_BANK))
 			.step(GuideSteps.travel("Go to Otto's Grotto, north of the Barbarian Outpost. Talk to Otto once if you have not started Barbarian Training.", Spots.OTTOS, 15, "Fishing spot", "Otto Godblessed"))
-			.step(GuideSteps.train("Fish the leaping fish. Drop them when the inventory is full. The guide returns you to dropping, not the bank.", Spots.OTTOS, AdvanceWhen.INVENTORY_FULL, "Fishing spot"))
-			.step(GuideSteps.drop("Drop the leaping fish."))
+			.step(GuideSteps.train("Fish the leaping fish. Drop them when the inventory is full. The guide returns you to dropping, not the bank.", Spots.OTTOS, AdvanceWhen.INVENTORY_FULL, "Fishing spot").npcIds(NpcID.FISHING_SPOT_1542))
+			.step(GuideSteps.drop("Drop the leaping fish. Keep the rod and bait."))
 			.save();
 		TrainingMethod.builder(out, Skill.FISHING, "Tempoross")
 			.levels(35, 99)
@@ -282,9 +310,21 @@ final class GatheringMethods
 		fish(out, "Monkfish", 62, 81, AccountMode.P2P, new TrainingStyle[]{TrainingStyle.AFK, TrainingStyle.PROFIT}, 3, 120, 35000,
 			"Monkfish at the Piscatoris Fishing Colony. Swan Song is required. They are quiet and decent food. Bank at the colony.",
 			"Raw monkfish", Spots.PISCATORIS, "Withdraw a small fishing net.", Spots.PISCATORIS, true);
-		fish(out, "Anglerfish", 82, 99, AccountMode.P2P, new TrainingStyle[]{TrainingStyle.AFK, TrainingStyle.PROFIT}, 5, 120, 25000,
-			"Anglerfish on the south-east coast of Fossil Island. Bone Voyage is required. They are slow and valuable. Bank at the Museum Camp. Sandworms are the bait.",
-			"Raw anglerfish", Spots.MUSEUM_CAMP, "Withdraw a fishing rod and sandworms.", Spots.ANGLERFISH, true);
+		TrainingMethod.builder(out, Skill.FISHING, "Anglerfish")
+			.levels(82, 99)
+			.modes(AccountMode.P2P)
+			.styles(TrainingStyle.AFK, TrainingStyle.PROFIT)
+			.priority(5)
+			.xp(120, 23000)
+			.summary("Fish anglerfish in Port Piscarilius, south of Tynan's Fishing Supplies. Bring a fishing rod and sandworms. Bank at Port Piscarilius. The fishing spot moves, so the guide finds its NPC instead of marking a fixed tile.")
+			.wiki("Raw anglerfish")
+			.tool("Fishing rod", ItemID.FISHING_ROD, ItemID.PEARL_FISHING_ROD)
+			.supplies("Sandworms", 1, ItemID.SANDWORMS)
+			.loop(0)
+			.step(GuideSteps.anyBank("Withdraw a fishing rod and sandworms. Use the Port Piscarilius bank between inventories."))
+			.step(GuideSteps.find("Travel to Port Piscarilius. Find the rod fishing spots south of Tynan's Fishing Supplies.", "Rod Fishing spot").npcIds(NpcID.ROD_FISHING_SPOT_6825))
+			.step(GuideSteps.roam("Bait the highlighted anglerfish spot until your inventory is full, then bank in Port Piscarilius.", AdvanceWhen.INVENTORY_FULL, "Rod Fishing spot").npcIds(NpcID.ROD_FISHING_SPOT_6825))
+			.save();
 	}
 
 	private static void fish(List<TrainingMethod> out, String name, int min, int max, AccountMode mode, TrainingStyle[] styles, int priority, double xpEach, int xpHr, String summary, String rawName, WorldPoint bank, String bankText, WorldPoint spot, boolean bankFish)
@@ -310,6 +350,19 @@ final class GatheringMethods
 			builder.step(GuideSteps.train("Fish until the inventory is full.", spot, AdvanceWhen.INVENTORY_FULL, "Fishing spot"));
 			builder.step(GuideSteps.drop("Drop the fish. Keep the rod and the feathers."));
 		}
+		if (name.equals("Monkfish"))
+		{
+			builder.quest(Quest.SWAN_SONG);
+		}
+		if (name.startsWith("Shrimp"))
+		{
+			builder.supplies("Small fishing net", 1, ItemID.SMALL_FISHING_NET);
+		}
+		if (name.equals("Fly fishing") || name.equals("Trout and salmon"))
+		{
+			builder.tool("Fly fishing rod", ItemID.FLY_FISHING_ROD, ItemID.PEARL_FLY_FISHING_ROD)
+				.supplies("Feathers", 1, ItemID.FEATHER);
+		}
 		builder.save();
 	}
 
@@ -319,15 +372,15 @@ final class GatheringMethods
 			"Lay bird snares on crimson swifts in the Feldip Hills, south of Castle Wars. Bring bird snares. This is the start of Hunter.",
 			Spots.CASTLE_WARS, "Withdraw bird snares. A few dozen is enough to start.", Spots.FELDIP_SWIFTS, "Crimson swift", "Bird snare");
 		trap(out, "Copper longtails", 20, 42, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.FAST, TrainingStyle.AFK}, 2, 18000,
-			"Stay in the Feldip hunter area and snare copper longtails. They are the next bird. Bank at Castle Wars if you need more snares.",
-			Spots.CASTLE_WARS, "Withdraw bird snares.", Spots.FELDIP_SWIFTS, "Copper longtail", "Bird snare");
+			"Travel to the Piscatoris hunter area and snare copper longtails. They are the next bird. Bank at Castle Wars if you need more snares.",
+			Spots.CASTLE_WARS, "Withdraw bird snares.", Spots.PISCATORIS_HUNTER, "Copper longtail", "Bird snare");
 		TrainingMethod.builder(out, Skill.HUNTER, "Falconry")
 			.levels(43, 62)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.FAST, TrainingStyle.AFK)
 			.priority(3)
 			.xp(0, 40000)
-			.summary("Falconry is east of the Piscatoris hunter area. Talk to Matthias, borrow a gyr falcon, and catch spotted kebbits, then dark kebbits at 57. You get your coins back when you return the falcon. Bring a few hundred coins as the deposit.")
+			.summary("Falconry is east of the Piscatoris hunter area. Talk to Matthias, borrow a gyr falcon, and catch spotted kebbits, then dark kebbits at 57. The falcon rental costs 500 coins. Bring a few hundred coins as the deposit.")
 			.wiki("Falconry")
 			.loop(1)
 			.step(GuideSteps.bank("Withdraw 500 coins for the falcon deposit.", Spots.GE))
@@ -338,12 +391,13 @@ final class GatheringMethods
 			"Box-trap red chinchompas in the Feldip Hills. They are the standard Hunter method and they make money. Bring box traps. A higher Hunter level fails less.",
 			Spots.CASTLE_WARS, "Withdraw box traps.", Spots.FELDIP, "Red chinchompa", "Box trap");
 		TrainingMethod.builder(out, Skill.HUNTER, "Black chinchompas")
+			.risk(RouteRisk.WILDERNESS)
 			.levels(73, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST, TrainingStyle.PROFIT)
 			.priority(6)
 			.xp(0, 160000)
-			.summary("Black chinchompas are the fastest Hunter XP and good money. They are in level 32 Wilderness, in the hunting ground west of the Lava Maze. Other players can attack you. Bring only box traps. A royal seed pod or a teleport that works in the Wilderness is the escape.")
+			.summary("Black chinchompas are the fastest Hunter XP and good money. They are in level 32 Wilderness, in the hunting ground west of the Lava Maze. Other players can attack you. Bring only box traps. A royal seed pod only works at level 30 Wilderness or below. Run south before attempting to teleport and plan for teleblocks.")
 			.wiki("Black chinchompa")
 			.note("The rate assumes you are not interrupted. Deaths make it worse.")
 			.opt("Red chinchompas are the safe version. Switch the style to Balanced.")
@@ -351,7 +405,7 @@ final class GatheringMethods
 			.loop(1)
 			.step(GuideSteps.bank("Withdraw box traps only, plus one teleport you can afford to use. Leave the rest of your bank behind.", Spots.GE))
 			.step(GuideSteps.travel("Go to the black chinchompa hunting area in level 32 Wilderness. This is dangerous.", new WorldPoint(3145, 3770, 0), 20, "Black chinchompa", "Box trap"))
-			.step(GuideSteps.train("Lay the box traps and reset them when they fall. Teleport if a player arrives.", new WorldPoint(3145, 3770, 0), AdvanceWhen.MANUAL, "Black chinchompa", "Box trap"))
+			.step(GuideSteps.train("Lay the box traps and reset them when they fall. Run south to level 30 or below before using an eligible teleport. A teleblock can still prevent escape.", new WorldPoint(3145, 3770, 0), AdvanceWhen.MANUAL, "Black chinchompa", "Box trap"))
 			.save();
 	}
 
@@ -401,15 +455,15 @@ final class GatheringMethods
 			.wiki("Herb run")
 			.opt("Hardwood trees on Fossil Island and calquat trees are extra XP once a day or so.")
 			.opt("Tithe Farm is active Farming XP if you do not want to wait on crops. It is in Hosidius.")
-			.opt("The Farming Guild at 65 Farming has a disease-free herb patch and contracts.")
+			.opt("The Farming Guild middle tier at 65 has an herb patch and contracts. Protect herbs with ultracompost; this patch is not disease-free.")
 			.loop(1)
-			.step(GuideSteps.bank("Withdraw a spade, seed dibber, rake, the best seeds you can plant, ultracompost for the herbs, and teleports. Note the saplings if you are planting trees.", Spots.GE))
+			.step(GuideSteps.bank("Withdraw a spade, seed dibber, rake, the best seeds you can plant, ultracompost for the herbs, and teleports. Keep saplings unnoted for planting.", Spots.GE))
 			.step(GuideSteps.travel("Falador: the allotment and herb patch are south of the east bank. Rake, plant, and compost.", Spots.FALADOR_EAST_BANK, 25))
 			.step(GuideSteps.travel("Catherby: the patches are just north of the bank. A Camelot teleport is the usual arrival.", Spots.CATHERBY_BANK, 20))
 			.step(GuideSteps.travel("Ardougne: the herb patch is north of the north bank.", Spots.ARDOUGNE_NORTH_BANK, 25))
 			.step(GuideSteps.travel("Canifis: Priest in Peril is required. The patch is west of the bank, through the gate.", Spots.CANIFIS_BANK, 25))
 			.step(GuideSteps.travel("Hosidius: the patch is south of the town. Xeric's talisman is the teleport.", Spots.HOSIDIUS, 25))
-			.step(GuideSteps.travel("Farming Guild, once you have 65 Farming: the herb patch inside is disease-free. Skip this step with Next if you cannot enter yet.", Spots.FARMING_GUILD, 20))
+			.step(GuideSteps.travel("Farming Guild, once you have 65 Farming: plant and compost the herb patch inside. Skip this step with Next if you cannot enter yet.", Spots.FARMING_GUILD, 20))
 			.step(GuideSteps.note("Plant any tree patches you brought saplings for, then stop. Come back when Time Tracking says the patches are grown. Herbs are about 80 minutes. Trees are hours."))
 			.save();
 

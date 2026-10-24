@@ -110,7 +110,7 @@ public final class Spots
 	public static final WorldPoint NIEVE = new WorldPoint(2432, 3423, 0);
 	public static final WorldPoint DURADEL = new WorldPoint(2869, 2982, 1);
 	public static final WorldPoint KRYSTILIA = new WorldPoint(3109, 3516, 0);
-	public static final WorldPoint ANGLERFISH = new WorldPoint(3820, 3760, 0);
+	public static final WorldPoint PISCATORIS_HUNTER = new WorldPoint(2340, 3595, 0);
 	public static final WorldPoint FALCONRY = new WorldPoint(2371, 3611, 0);
 
 	private Spots()

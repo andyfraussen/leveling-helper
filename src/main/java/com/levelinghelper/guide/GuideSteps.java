@@ -8,7 +8,7 @@ import net.runelite.api.coords.WorldPoint;
 
 public final class GuideSteps
 {
-	private static final String[] BANK_NAMES = {"banker", "bank booth", "bank chest", "deposit box"};
+	private static final String[] BANK_NAMES = {"banker", "bank booth", "bank chest", "bank chest-wreck"};
 
 	private GuideSteps()
 	{
@@ -26,6 +26,12 @@ public final class GuideSteps
 			HighlightMode.NEAR_TARGET,
 			GuideStep.namesOf(BANK_NAMES),
 			null);
+	}
+
+	public static GuideStep anyBank(String instruction)
+	{
+		return new GuideStep(instruction, StepKind.BANK, null, 0, 0, AdvanceWhen.BANK_CLOSED,
+			HighlightMode.ANYWHERE, GuideStep.namesOf(BANK_NAMES), null);
 	}
 
 	public static GuideStep travel(String instruction, WorldPoint at, int radius, String... names)
@@ -93,7 +99,7 @@ public final class GuideSteps
 			12,
 			18,
 			AdvanceWhen.ITEM_GONE,
-			HighlightMode.NEAR_TARGET,
+			at == null ? HighlightMode.ANYWHERE : HighlightMode.NEAR_TARGET,
 			GuideStep.namesOf(names),
 			itemName);
 	}

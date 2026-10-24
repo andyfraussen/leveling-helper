@@ -26,6 +26,8 @@ public final class GuideSnapshot
 	private final TrainingMethod upcoming;
 	private final List<TrainingMethod> alternatives;
 	private final String status;
+	private final List<String> preparation;
+	private final List<String> lockedRoutes;
 
 	public GuideSnapshot(
 		boolean loggedIn,
@@ -44,7 +46,7 @@ public final class GuideSnapshot
 		String distanceText,
 		TrainingMethod upcoming,
 		List<TrainingMethod> alternatives,
-		String status)
+		String status, List<String> preparation, List<String> lockedRoutes)
 	{
 		this.loggedIn = loggedIn;
 		this.membersWorld = membersWorld;
@@ -61,8 +63,10 @@ public final class GuideSnapshot
 		this.sessionPerHour = sessionPerHour;
 		this.distanceText = distanceText;
 		this.upcoming = upcoming;
-		this.alternatives = alternatives == null ? Collections.<TrainingMethod>emptyList() : alternatives;
+		this.alternatives = alternatives == null ? Collections.<TrainingMethod>emptyList() : List.copyOf(alternatives);
 		this.status = status;
+		this.preparation = List.copyOf(preparation);
+		this.lockedRoutes = List.copyOf(lockedRoutes);
 	}
 
 	public boolean loggedIn()
@@ -148,6 +152,16 @@ public final class GuideSnapshot
 	public String status()
 	{
 		return status;
+	}
+
+	public List<String> preparation()
+	{
+		return preparation;
+	}
+
+	public List<String> lockedRoutes()
+	{
+		return lockedRoutes;
 	}
 
 	public boolean atGoal()

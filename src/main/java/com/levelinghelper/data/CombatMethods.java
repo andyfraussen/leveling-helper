@@ -3,9 +3,13 @@ package com.levelinghelper.data;
 import com.levelinghelper.guide.GuideSteps;
 import com.levelinghelper.model.AccountMode;
 import com.levelinghelper.model.AdvanceWhen;
+import com.levelinghelper.model.RouteRisk;
 import com.levelinghelper.model.TrainingMethod;
 import com.levelinghelper.model.TrainingStyle;
 import java.util.List;
+import net.runelite.api.ItemID;
+import net.runelite.api.NpcID;
+import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
 
@@ -106,6 +110,7 @@ final class CombatMethods
 	private static void gemstone(List<TrainingMethod> out, Skill skill)
 	{
 		TrainingMethod.builder(out, skill, "Gemstone Crab")
+			.quest(Quest.CHILDREN_OF_THE_SUN)
 			.levels(1, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.AFK)
@@ -118,8 +123,8 @@ final class CombatMethods
 			.opt("This guide never tells you where to stand or which prayer to use. It only marks the crab.")
 			.loop(2)
 			.step(GuideSteps.note("Complete Children of the Sun if you have not. Then travel to the Tlati Rainforest mines in eastern Varlamore. Press Next once you are in Varlamore."))
-			.step(GuideSteps.find("Walk until the Gemstone Crab is on screen. If it has burrowed, crawl through the cave to the next mine.", "Gemstone Crab"))
-			.step(GuideSteps.roam(gear(skill) + " Attack the Gemstone Crab. When it burrows, follow it through the crawl-through cave. This step stays up while you train.", AdvanceWhen.MANUAL, "Gemstone Crab"))
+			.step(GuideSteps.find("Walk until the Gemstone Crab is on screen. If it has burrowed, crawl through the cave to the next mine.", "Gemstone Crab").npcIds(NpcID.GEMSTONE_CRAB))
+			.step(GuideSteps.roam(gear(skill) + " Attack the Gemstone Crab. When it burrows, follow it through the crawl-through cave. This step stays up while you train.", AdvanceWhen.MANUAL, "Gemstone Crab").npcIds(NpcID.GEMSTONE_CRAB))
 			.save();
 	}
 
@@ -152,24 +157,28 @@ final class CombatMethods
 	private static void memberMagic(List<TrainingMethod> out)
 	{
 		spell(out, "Combat spells", 1, 99, AccountMode.P2P, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.FAST},
-			"Cast the best combat spell you can afford on sand crabs. Upgrade the spell when you unlock it. A matching elemental staff saves runes. At 62 Magic, with 65 Slayer and Desert Treasure I, switch stays on this method only if you cannot burst yet.",
+			"Cast the best combat spell you can afford on sand crabs. Upgrade the spell when you unlock it. A matching elemental staff saves runes. At 70 Magic, with 65 Slayer and Desert Treasure I, switch stays on this method only if you cannot burst yet.",
 			Spots.HOSIDIUS, Spots.SAND_CRABS, "Sand Crab", "Train on the sand crabs south of Hosidius.");
 		TrainingMethod.builder(out, Skill.MAGIC, "Ice Burst")
-			.levels(62, 93)
+			.levels(70, 93)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
 			.priority(6)
 			.req(Skill.SLAYER, 65)
+			.quest(Quest.DESERT_TREASURE_I)
+			.equipment("Facemask or any Slayer helmet", Equipment.DUST_PROTECTION)
+			.risk(RouteRisk.DANGEROUS)
+			.prepare("Switch to Ancient Magicks. Bring enough runes for your session, prayer potions and food.")
 			.xp(0, 180000)
 			.note("Burst XP per hour depends on how many dust devils you hit with each cast. This is a normal Catacombs rate, not a perfect one.")
-			.summary("Ice Burst in the Catacombs of Kourend is the usual fast Magic method. You need Desert Treasure I for Ancient Magicks, 65 Slayer, death runes, chaos runes, and water runes. Stand so one cast hits several dust devils. Bring prayer potions or protect from melee.")
+			.summary("Ice Burst in the Catacombs of Kourend is the usual fast Magic method. You need Desert Treasure I for Ancient Magicks, 65 Slayer, death runes, chaos runes, and water runes. Equip a facemask or Slayer helmet and bring supplies for your session.")
 			.wiki("Ice Burst")
 			.opt("Monkey Madness II unlocks maniacal monkeys in Kruk's Dungeon. They are the other standard burst spot and do not need a Slayer level.")
 			.opt("Ice Barrage at 94 is the same trip with a stronger spell.")
 			.loop(1)
-			.step(GuideSteps.bank("Withdraw an ancient staff or the runes for Ice Burst, prayer potions, and food. Nothing else is required.", Spots.GE))
+			.step(GuideSteps.bank("Equip a facemask or Slayer helmet. Switch to Ancient Magicks and withdraw Ice Burst runes, prayer potions and food. An ancient staff does not supply the runes.", Spots.GE))
 			.step(GuideSteps.travel("Enter the Catacombs of Kourend through the hole in the centre of Great Kourend, by the statue. Dust devils are in the south-east wing.", Spots.CATACOMBS, 15))
-			.step(GuideSteps.roam("Burst the dust devils. This step stays up while you train. Bank when you run out of prayer potions or runes.", AdvanceWhen.MANUAL, "Dust devil"))
+			.step(GuideSteps.roam("Burst the dust devils. This step stays up while you train. Bank when you run out of prayer potions or runes.", AdvanceWhen.MANUAL, "Dust devil").npcIds(NpcID.DUST_DEVIL_7249))
 			.save();
 		TrainingMethod.builder(out, Skill.MAGIC, "Ice Barrage")
 			.levels(94, 99)
@@ -177,15 +186,19 @@ final class CombatMethods
 			.styles(TrainingStyle.FAST)
 			.priority(7)
 			.req(Skill.SLAYER, 65)
+			.quest(Quest.DESERT_TREASURE_I)
+			.equipment("Facemask or any Slayer helmet", Equipment.DUST_PROTECTION)
+			.risk(RouteRisk.DANGEROUS)
+			.prepare("Switch to Ancient Magicks. Bring enough runes for your session, prayer potions and food.")
 			.xp(0, 280000)
 			.note("A normal Catacombs barrage rate. Monkey spots can be higher.")
-			.summary("Ice Barrage is the same dust devil trip as Ice Burst, with the stronger spell. You still need Ancient Magicks and 65 Slayer.")
+			.summary("Ice Barrage is the same dust devil trip as Ice Burst, with the stronger spell. You still need Ancient Magicks, 65 Slayer and an equipped facemask or Slayer helmet.")
 			.wiki("Ice Barrage")
 			.opt("Maniacal monkeys after Monkey Madness II are the other standard barrage monster.")
 			.loop(1)
-			.step(GuideSteps.bank("Withdraw barrage runes, an ancient staff if you use one, prayer potions, and food.", Spots.GE))
+			.step(GuideSteps.bank("Equip a facemask or Slayer helmet. Switch to Ancient Magicks and withdraw Ice Barrage runes, prayer potions and food.", Spots.GE))
 			.step(GuideSteps.travel("Enter the Catacombs of Kourend at the hole by the statue in the centre of Great Kourend.", Spots.CATACOMBS, 15))
-			.step(GuideSteps.roam("Barrage the dust devils until your supplies run out, then press Bank.", AdvanceWhen.MANUAL, "Dust devil"))
+			.step(GuideSteps.roam("Barrage the dust devils until your supplies run out, then press Bank.", AdvanceWhen.MANUAL, "Dust devil").npcIds(NpcID.DUST_DEVIL_7249))
 			.save();
 		gemstone(out, Skill.MAGIC);
 		TrainingMethod.builder(out, Skill.MAGIC, "High Alchemy")
@@ -238,19 +251,21 @@ final class CombatMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.PRAYER, "Chaos altar")
+			.risk(RouteRisk.WILDERNESS)
+			.supplies("Unnoted dragon bones", 1, ItemID.DRAGON_BONES)
 			.levels(1, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
 			.xp(252, 450000)
 			.note("The chaos altar averages better than a gilded altar because bones are sometimes saved. Deaths and running lower the real rate.")
-			.summary("The chaos altar in level 38 Wilderness is the fastest Prayer training. Other players can attack you here. A burning amulet teleports to the Chaos Temple. Bring only dragon bones and the teleport. Do not bring armour you mind losing. Use the bones on the altar.")
+			.summary("The chaos altar in level 38 Wilderness is the fastest Prayer training. Other players can attack you here. Use the burning amulet Lava Maze teleport, then walk west to the altar. Its Chaos Temple teleport goes to a different temple. Bring only dragon bones and the teleport. Do not bring armour you mind losing. Use the bones on the altar.")
 			.wiki("Chaos altar")
 			.opt("Turn on player indicators before you go, and hop if the world is busy.")
 			.opt("Big bones work too and risk less money per trip.")
 			.loop(0)
 			.step(GuideSteps.bank("Withdraw three or four inventories of dragon bones only if you accept losing some. For the trip itself, take one inventory and a burning amulet. Leave everything else in the bank.", Spots.GE))
-			.step(GuideSteps.travel("Teleport with the burning amulet to the Chaos Temple, or walk to the level 38 Wilderness altar west of the Lava Maze. This is dangerous.", Spots.CHAOS_ALTAR, 12))
-			.step(GuideSteps.untilEmpty("Use the dragon bones on the chaos altar. If another player attacks you, teleport or die. The bones are the only thing you should lose.", Spots.CHAOS_ALTAR, "Dragon bones", "Chaos altar"))
+			.step(GuideSteps.travel("Use the burning amulet Lava Maze teleport and walk west to the level 38 Wilderness altar. The amulet Chaos Temple option goes elsewhere. This is dangerous.", Spots.CHAOS_ALTAR, 12))
+			.step(GuideSteps.untilEmpty("Use the dragon bones on the chaos altar. Normal teleports do not work at this Wilderness level. Plan an escape or accept losing the bones; do not rely on teleporting from the altar.", Spots.CHAOS_ALTAR, "Dragon bones", "Chaos altar"))
 			.save();
 
 		TrainingMethod.builder(out, Skill.PRAYER, "Bury dragon bones")
@@ -294,7 +309,7 @@ final class CombatMethods
 			"Nieve is in a cave on the west side of the Tree Gnome Stronghold, south of the bank.",
 			"Get a task and complete it. Cannon or burst tasks are the fast ones. Press Next and talk to her again when the counter hits zero.");
 		master(out, "Duradel", 8, 100, 50, 8, Spots.DURADEL,
-			"Duradel in Shilo Village is the usual final master. You need 100 combat, 50 Slayer, and Shilo Village. He gives 15 points. Kuradal replaces him during While Guthix Sleeps.",
+			"Duradel in Shilo Village is the usual final master. You need 100 combat, 50 Slayer, and Shilo Village. He gives 15 points. Kuradal is the replacement after While Guthix Sleeps; check the current master before travelling.",
 			"Travel to Shilo Village and go upstairs to Duradel.",
 			"Get a task and finish it. This is the master to use for a long Slayer grind.");
 	}
@@ -318,20 +333,33 @@ final class CombatMethods
 			.opt("Turael can replace a bad task from another master with an easy one. That does not spend points, and it resets your task streak.")
 			.opt("Every 10th and 50th task gives bonus points. Do those at Konar or Duradel.")
 			.loop(1)
-			.step(GuideSteps.travel(travel, at, 12, name))
+			.step(GuideSteps.travel(travel, at, 12, name, name.equals("Nieve") ? "Steve" : name))
 			.step(GuideSteps.train(train, at, AdvanceWhen.MANUAL, name));
 		if (slayer > 0)
 		{
 			builder.req(Skill.SLAYER, slayer);
+		}
+		if (name.equals("Mazchna"))
+		{
+			builder.quest(Quest.PRIEST_IN_PERIL);
+		}
+		if (name.equals("Chaeldar"))
+		{
+			builder.quest(Quest.LOST_CITY);
+		}
+		if (name.equals("Duradel"))
+		{
+			builder.quest(Quest.SHILO_VILLAGE);
 		}
 		builder.save();
 	}
 
 	private static void fight(List<TrainingMethod> out, Skill skill, String name, int min, int max, AccountMode mode, TrainingStyle[] styles, int priority, int xpHr, String summary, String wiki, WorldPoint bank, String bankText, WorldPoint spot, String travel, String... highlights)
 	{
-		TrainingMethod.builder(out, skill, name)
+		TrainingMethod.Builder builder = TrainingMethod.builder(out, skill, name)
 			.levels(min, max)
 			.modes(mode)
+			.risk(RouteRisk.DANGEROUS)
 			.styles(styles)
 			.priority(priority)
 			.xp(0, xpHr)
@@ -340,10 +368,18 @@ final class CombatMethods
 			.wiki(wiki)
 			.opt(questOpt(skill))
 			.loop(0)
-			.step(GuideSteps.bank(bankText, bank))
+			.step(bank == Spots.NMZ ? GuideSteps.anyBank(bankText) : GuideSteps.bank(bankText, bank))
 			.step(GuideSteps.travel(travel, spot, 15, highlights))
-			.step(GuideSteps.train("Keep fighting until you need to bank food or loot. A full inventory sends you back to the bank step.", spot, AdvanceWhen.INVENTORY_FULL, highlights))
-			.save();
+			.step(GuideSteps.train("Keep fighting until you need to bank food or loot. Press Bank when you need to restock; a full food inventory is not a completed training session.", spot, AdvanceWhen.MANUAL, highlights));
+		if (name.equals("Ammonite crabs"))
+		{
+			builder.quest(Quest.BONE_VOYAGE);
+		}
+		if (name.equals("Nightmare Zone"))
+		{
+			builder.prepare("Unlock at least five Nightmare Zone bosses and check your available dream with Dominic Onion.");
+		}
+		builder.save();
 	}
 
 	private static void spell(List<TrainingMethod> out, String name, int min, int max, AccountMode mode, TrainingStyle[] styles, String summary, WorldPoint bank, WorldPoint spot, String highlight, String travel)

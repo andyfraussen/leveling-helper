@@ -3,9 +3,11 @@ package com.levelinghelper.data;
 import com.levelinghelper.guide.GuideSteps;
 import com.levelinghelper.model.AccountMode;
 import com.levelinghelper.model.AdvanceWhen;
+import com.levelinghelper.model.RouteRisk;
 import com.levelinghelper.model.TrainingMethod;
 import com.levelinghelper.model.TrainingStyle;
 import java.util.List;
+import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
 
@@ -64,7 +66,7 @@ final class ProductionMethods
 			.styles(TrainingStyle.BALANCED, TrainingStyle.FAST)
 			.priority(5)
 			.xp(200, 400000)
-			.note("Wines are 200 XP each and they never burn. The rate is for normal clicking at the Grand Exchange. Faster clicking is higher.")
+			.note("Successful wines give 200 XP. Fermentation can fail below 68 Cooking; failed wines give no XP. The rate is for normal clicking at the Grand Exchange. Faster clicking is higher.")
 			.summary("Use grapes on jugs of water. Buy both at the Grand Exchange. This is the members cooking method from 35 to 99. It usually costs money. Cook fish instead if you want profit or something quieter.")
 			.wiki("Jug of wine")
 			.opt("Cook's Assistant is a small amount of early Cooking XP and is required for later quests.")
@@ -137,7 +139,7 @@ final class ProductionMethods
 			.wiki(name)
 			.loop(0)
 			.step(GuideSteps.bank("Withdraw a tinderbox and an inventory of " + item.toLowerCase() + ".", Spots.GE))
-			.step(GuideSteps.untilEmpty("Stand one tile south of the exchange and light the logs in a line, walking south as you go.", Spots.GE, item))
+			.step(GuideSteps.untilEmpty("Use a clear east-west line south of the exchange to light logs. Lighting a fire moves you west; avoid blocking the bankers.", Spots.GE, item))
 			.save();
 	}
 
@@ -197,21 +199,25 @@ final class ProductionMethods
 		smithMembers(out, "Bronze", 1, 14, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.FAST, TrainingStyle.AFK, TrainingStyle.PROFIT}, 1, 6.2, 30000, "Bronze bar",
 			"Smith bronze at the Varrock west anvil until Giants' Foundry at 15. Knight's Sword gives about 12,725 Smithing XP and skips this on a members account.");
 		TrainingMethod.builder(out, Skill.SMITHING, "Giants' Foundry")
+			.quest(Quest.SLEEPING_GIANTS)
 			.levels(15, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.PROFIT)
 			.priority(4)
 			.xp(0, 180000)
-			.summary("Giants' Foundry, south of the Ice Mountain, is the balanced Smithing method. You alloy two metals, pour the mould, and hammer the sword. It uses fewer bars than smithing platebodies and pays you in foundry rewards. Bring a hammer. The preform storage lets you bank less often once you unlock it.")
+			.summary("Giants' Foundry, east of Al Kharid, is the balanced Smithing method. You alloy two metals, pour the mould, and hammer the sword. It uses fewer bars than smithing platebodies and pays you in foundry rewards. Bring a hammer. The preform storage lets you bank less often once you unlock it.")
 			.wiki("Giants' Foundry")
 			.opt("Use the best metal pair the founder recommends for your level. Higher metals are more XP.")
 			.opt("Knight's Sword is about 12,725 Smithing XP. Do it early.")
 			.loop(1)
 			.step(GuideSteps.bank("Withdraw a hammer and the two types of bar you plan to alloy. The foundry tells you the useful pairs.", Spots.GE))
-			.step(GuideSteps.travel("Go to Giants' Foundry, south of Ice Mountain.", Spots.GIANTS_FOUNDRY, 18, "Kovac"))
+			.step(GuideSteps.travel("Go to Giants' Foundry, east of Al Kharid.", Spots.GIANTS_FOUNDRY, 18, "Kovac"))
 			.step(GuideSteps.train("Commission a sword, pour the crucible, and work the preform. Hand it in, then start another. Press Bank when you need bars.", Spots.GIANTS_FOUNDRY, AdvanceWhen.MANUAL, "Crucible", "Mould jig"))
 			.save();
 		TrainingMethod.builder(out, Skill.SMITHING, "Blast Furnace gold")
+			.quest(Quest.FAMILY_CREST)
+			.prepare("Start The Giant Dwarf to enter Keldagrim. Use a Blast Furnace world and fund the coffer; under 60 Smithing also pay the foreman.")
+			.prepare("Wear goldsmith gauntlets until the XP drop. Swap to ice gloves to collect bars, then swap back. These share the same equipment slot.")
 			.levels(40, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
@@ -222,11 +228,12 @@ final class ProductionMethods
 			.wiki("Blast Furnace")
 			.opt("Steel or mithril at the Blast Furnace is often better money and less XP than gold.")
 			.loop(1)
-			.step(GuideSteps.bank("Withdraw gold ore. Equip goldsmith gauntlets and ice gloves. Bring coins for the foreman if you are under 60.", Spots.GE))
+			.step(GuideSteps.bank("Withdraw gold ore. Bring goldsmith gauntlets and ice gloves. Equip the goldsmith gauntlets for the XP drop, then swap to ice gloves to collect bars. Bring coins for the foreman if you are under 60.", Spots.GE))
 			.step(GuideSteps.travel("Take the minecart to Keldagrim and enter the Blast Furnace.", Spots.BLAST_FURNACE, 20, "Conveyor belt"))
 			.step(GuideSteps.train("Put gold ore on the conveyor, cool the bars, and collect them from the dispenser. Repeat until the ore is gone, then press Bank.", Spots.BLAST_FURNACE, AdvanceWhen.MANUAL, "Conveyor belt", "Dispenser"))
 			.save();
 		TrainingMethod.builder(out, Skill.SMITHING, "Cannonballs")
+			.quest(Quest.DWARF_CANNON)
 			.levels(35, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.AFK)
@@ -244,15 +251,19 @@ final class ProductionMethods
 
 	private static void smith(List<TrainingMethod> out, String name, int min, int max, double xpEach, int xpHr, String bar, String summary)
 	{
-		smithMembers(out, name, min, max, ALL, 1, xpEach, xpHr, bar, summary + " The anvil is next to Varrock west bank.");
-		// The call above uses P2P by default in smithMembers. Free-to-play needs its own mode.
+		smithAtAnvil(out, name, min, max, ALL, 1, xpEach, xpHr, bar, summary + " The anvil is south of Varrock west bank.", AccountMode.F2P, AccountMode.P2P);
 	}
 
 	private static void smithMembers(List<TrainingMethod> out, String name, int min, int max, TrainingStyle[] styles, int priority, double xpEach, int xpHr, String bar, String summary)
 	{
+		smithAtAnvil(out, name, min, max, styles, priority, xpEach, xpHr, bar, summary, AccountMode.P2P);
+	}
+
+	private static void smithAtAnvil(List<TrainingMethod> out, String name, int min, int max, TrainingStyle[] styles, int priority, double xpEach, int xpHr, String bar, String summary, AccountMode... modes)
+	{
 		TrainingMethod.builder(out, Skill.SMITHING, name)
 			.levels(min, max)
-			.modes(styles == ALL ? AccountMode.F2P : AccountMode.P2P)
+			.modes(modes)
 			.styles(styles)
 			.priority(priority)
 			.xp(xpEach, xpHr)
@@ -276,10 +287,11 @@ final class ProductionMethods
 		altar(out, "Body runes", 20, 99, AccountMode.F2P, ALL, 2, 7.5, 14000, Spots.BODY_RUINS, "Body tiara",
 			"Body runes are the free-to-play Runecraft method to 99, and they are also the money method. The ruins are south of the Monastery.");
 
-		altar(out, "Air runes", 1, 9, AccountMode.P2P, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.FAST, TrainingStyle.AFK, TrainingStyle.PROFIT}, 1, 5, 10000, Spots.AIR_RUINS, "Air tiara",
+		altar(out, "Air runes", 1, 99, AccountMode.P2P, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.FAST, TrainingStyle.AFK, TrainingStyle.PROFIT}, 1, 5, 10000, Spots.AIR_RUINS, "Air tiara",
 			"Air runes until Guardians of the Rift. Use pure essence. Complete Temple of the Eye when you can.");
 		TrainingMethod.builder(out, Skill.RUNECRAFT, "Guardians of the Rift")
-			.levels(10, 99)
+			.quest(Quest.TEMPLE_OF_THE_EYE)
+			.levels(27, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.AFK, TrainingStyle.PROFIT)
 			.priority(4)
@@ -300,11 +312,11 @@ final class ProductionMethods
 			.priority(6)
 			.xp(0, 60000)
 			.note("A relaxed lava-rune rate. The duel-ring loop is faster if you click harder, and this guide does not time the clicks for you.")
-			.summary("Lava runes are the fast Runecraft method. Use earth runes on the fire altar with a binding necklace. A ring of dueling to the Emir's Arena, or Castle Wars, and back to the altar, is the usual loop. Bring pure essence. It costs money.")
+			.summary("Lava runes are the fast Runecraft method. Use earth runes on the fire altar with a binding necklace, plus an earth talisman for each trip unless Magic Imbue is active. A ring of dueling to the Emir's Arena, or Castle Wars, and back to the altar, is the usual loop. Bring pure essence. It costs money.")
 			.wiki("Lava rune")
 			.opt("Magic Imbue removes the need to carry the talisman combination. It is a Lunar spell.")
 			.loop(0)
-			.step(GuideSteps.bank("Withdraw pure essence, earth runes, a binding necklace, and a ring of dueling. Wear a fire tiara if you have one.", Spots.GE))
+			.step(GuideSteps.bank("Withdraw pure essence, earth runes, a binding necklace, an earth talisman (unless using Magic Imbue), and a ring of dueling. Wear a fire tiara if you have one.", Spots.GE))
 			.step(GuideSteps.travel("Go to the fire altar ruins north-east of Al Kharid.", Spots.FIRE_RUINS, 12, "Mysterious ruins"))
 			.step(GuideSteps.note("Enter the ruins, use the earth runes on the altar, and teleport back with the dueling ring. Press Next to bank and repeat."))
 			.save();
@@ -325,7 +337,7 @@ final class ProductionMethods
 			.loop(0)
 			.step(GuideSteps.bank("Withdraw " + essence.toLowerCase() + " and wear a " + tiara.toLowerCase() + ". Aubury, in the rune shop by Varrock east bank, teleports you to the essence mine.", Spots.VARROCK_EAST_BANK))
 			.step(GuideSteps.travel("Go to the mysterious ruins. The tiara lets you enter.", ruins, 12, "Mysterious ruins"))
-			.step(GuideSteps.untilEmpty("Craft the runes at the altar, then bank.", ruins, essence, "Altar"))
+			.step(GuideSteps.untilEmpty("Enter the ruins and craft the runes at the altar, then leave and bank.", null, essence, "Altar"))
 			.save();
 	}
 
@@ -391,6 +403,7 @@ final class ProductionMethods
 		potion(out, "Super combat", 90, 99, 150, "Torstol potion (unf)", "Make super combat potions. You need a torstol potion (unf) plus super attack, super strength, and super defence.");
 
 		TrainingMethod.builder(out, Skill.HERBLORE, "Clean herbs")
+			.quest(Quest.DRUIDIC_RITUAL)
 			.levels(1, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.PROFIT)
@@ -409,6 +422,7 @@ final class ProductionMethods
 	private static void potion(List<TrainingMethod> out, String name, int min, int max, double xpEach, String unfinished, String summary)
 	{
 		TrainingMethod.builder(out, Skill.HERBLORE, name)
+			.quest(Quest.DRUIDIC_RITUAL)
 			.levels(min, max)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.FAST, TrainingStyle.AFK)
@@ -420,7 +434,9 @@ final class ProductionMethods
 			.opt("Make the potion with the best XP for the money you can spend. The one named here is the straightforward choice, not always the cheapest.")
 			.loop(1)
 			.step(GuideSteps.note("If you have not completed Druidic Ritual, do that first. Press Next when Herblore is unlocked."))
-			.step(GuideSteps.bank("Withdraw 14 " + unfinished.toLowerCase() + " and 14 of the secondary ingredient.", Spots.GE))
+			.step(GuideSteps.bank(name.equals("Super combat")
+				? "Withdraw 7 torstol potions (unf), 7 super attack (4), 7 super strength (4), and 7 super defence (4)."
+				: "Withdraw 14 " + unfinished.toLowerCase() + " and 14 of the secondary ingredient.", Spots.GE))
 			.step(GuideSteps.untilEmpty("Combine the potions.", Spots.GE, unfinished))
 			.save();
 	}
@@ -452,7 +468,7 @@ final class ProductionMethods
 			.summary("Build oak larders in your player-owned house. Call the butler to fetch more planks from the bank. Rimmington is the usual portal because the house advert and the shop are there. You need enough planks and servant money.")
 			.wiki("Oak larder")
 			.loop(0)
-			.step(GuideSteps.bank("Withdraw oak planks and coins for the butler. A saw and hammer can stay in the house.", Spots.GE))
+			.step(GuideSteps.bank("Withdraw oak planks and coins for the butler. Bring a saw and hammer.", Spots.GE))
 			.step(GuideSteps.travel("Go to the Rimmington house portal and enter your house.", Spots.RIMMINGTON_PORTAL, 12, "Portal"))
 			.step(GuideSteps.note("Build oak larders, remove them, and have the butler bring more planks. Press Next when you need to bank again."))
 			.save();

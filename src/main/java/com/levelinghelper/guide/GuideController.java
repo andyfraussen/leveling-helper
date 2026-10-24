@@ -10,12 +10,14 @@ public final class GuideController
 	private TrainingMethod method;
 	private int stepIndex;
 	private boolean armed;
+	private GuideTick lastTick;
 
 	public void start(TrainingMethod method)
 	{
 		this.method = method;
 		this.stepIndex = 0;
 		this.armed = false;
+		this.lastTick = null;
 	}
 
 	public void stop()
@@ -23,6 +25,7 @@ public final class GuideController
 		method = null;
 		stepIndex = 0;
 		armed = false;
+		lastTick = null;
 	}
 
 	public boolean running()
@@ -51,6 +54,7 @@ public final class GuideController
 
 	public boolean tick(GuideTick tick, boolean autoAdvance, int defaultRadius)
 	{
+		observe(tick);
 		if (method == null || !autoAdvance)
 		{
 			return false;
@@ -68,6 +72,32 @@ public final class GuideController
 		return true;
 	}
 
+	/** Observe completion prerequisites even when automatic progression is disabled. */
+	public void observe(GuideTick tick)
+	{
+		lastTick = tick;
+		GuideStep step = current();
+		if (step == null)
+		{
+			return;
+		}
+		switch (step.advance())
+		{
+			case BANK_CLOSED:
+				armed |= tick.bankOpen();
+				break;
+			case INVENTORY_HAS_SPACE:
+			case NEAR_AND_EMPTIED:
+				armed |= tick.inventoryFull();
+				break;
+			case ITEM_GONE:
+				armed |= tick.inventoryKnown() && !tick.watchedItemGone();
+				break;
+			default:
+				break;
+		}
+	}
+
 	public void advance()
 	{
 		if (method == null || method.steps().isEmpty())
@@ -81,6 +111,13 @@ public final class GuideController
 			next = Math.max(0, Math.min(method.loopFrom(), method.steps().size() - 1));
 		}
 		stepIndex = next;
+		// The full inventory that completed training also arms the following drop/hopper step.
+		if (lastTick != null && lastTick.inventoryFull()
+			&& (current().advance() == com.levelinghelper.model.AdvanceWhen.INVENTORY_HAS_SPACE
+				|| current().advance() == com.levelinghelper.model.AdvanceWhen.NEAR_AND_EMPTIED))
+		{
+			armed = true;
+		}
 	}
 
 	public void back()
@@ -125,10 +162,14 @@ public final class GuideController
 					armed = true;
 					return false;
 				}
-				return armed;
+				return armed && tick.prepared() && tick.inventoryKnown();
 			case INVENTORY_FULL:
 				return tick.inventoryFull();
 			case INVENTORY_HAS_SPACE:
+				if (!tick.inventoryKnown())
+				{
+					return false;
+				}
 				if (tick.inventoryFull())
 				{
 					armed = true;
@@ -141,10 +182,11 @@ public final class GuideController
 					armed = true;
 				}
 				return armed
+					&& tick.inventoryKnown()
 					&& !tick.inventoryFull()
 					&& near(tick.player(), step.target(), step.arrivalRadius(defaultRadius));
 			case ITEM_GONE:
-				return tick.watchedItemGone();
+				return armed && tick.inventoryKnown() && tick.watchedItemGone();
 			case HIGHLIGHT_VISIBLE:
 				return tick.highlightVisible();
 			case MANUAL:

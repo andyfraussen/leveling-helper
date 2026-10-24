@@ -3,9 +3,11 @@ package com.levelinghelper.data;
 import com.levelinghelper.guide.GuideSteps;
 import com.levelinghelper.model.AccountMode;
 import com.levelinghelper.model.AdvanceWhen;
+import com.levelinghelper.model.RouteRisk;
 import com.levelinghelper.model.TrainingMethod;
 import com.levelinghelper.model.TrainingStyle;
 import java.util.List;
+import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
 
@@ -37,7 +39,7 @@ final class SupportMethods
 		roof(out, "Falador rooftop", 50, 59, 1, 28000, Spots.FALADOR_ROOF,
 			"Falador rooftop starts on the wall south of the east bank.");
 		roof(out, "Seers' Village rooftop", 60, 69, 1, 45000, Spots.SEERS_ROOF,
-			"Seers' Village rooftop starts beside the bank. The hard Kandarin Diary Camelot teleport puts you on the roof and makes this course much better. Do the diary when you can.");
+			"Seers' Village rooftop starts beside the bank. The hard Kandarin Diary Camelot teleport puts you beside Seers bank and makes this course much better. Do the diary when you can.");
 		roof(out, "Pollnivneach rooftop", 70, 79, 1, 52000, Spots.POLLNIVNEACH_ROOF,
 			"Pollnivneach rooftop. Bring water, or wear a Circlet of Water, because the town is in the desert. The hard Desert Diary removes the heat.");
 		roof(out, "Rellekka rooftop", 80, 89, 1, 58000, Spots.RELLEKKA_ROOF,
@@ -46,21 +48,25 @@ final class SupportMethods
 			"Ardougne rooftop is the course to 99 if you are not running the Hallowed Sepulchre. The start is the wooden beam by the north bank.");
 
 		TrainingMethod.builder(out, Skill.AGILITY, "Wilderness course")
+			.risk(RouteRisk.WILDERNESS)
+			.prepare("Ordinary teleports do not work this deep in the Wilderness. Plan an escape and risk only items you accept losing.")
 			.levels(52, 71)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
 			.priority(5)
 			.xp(0, 45000)
-			.summary("The Wilderness Agility Course is faster than the Falador and Seers rooftops and it is in the Wilderness. Other players can attack you. Bring only a knife or nothing. A teleport out is worth more than food. The course is north of the Mage Arena, just past the gate.")
+			.summary("The Wilderness Agility Course is faster than the Falador and Seers rooftops and it is in the Wilderness. Other players can attack you. Bring only a knife or nothing. Ordinary teleports do not work at the course; plan an escape before entering. The course is north of the Mage Arena, just past the gate.")
 			.wiki("Wilderness Agility Course")
 			.note("Rooftops are the safe version. Switch the style to Balanced if you do not want Wilderness risk.")
 			.loop(1)
-			.step(GuideSteps.bank("Empty your inventory of anything you would miss. Bring a teleport.", Spots.GE))
+			.step(GuideSteps.bank("Bank anything you would miss. Bring food and plan a route out; do not rely on a teleport at the course.", Spots.GE))
 			.step(GuideSteps.travel("Enter the Wilderness Agility Course. This is dangerous.", Spots.WILDERNESS_COURSE, 15, "Obstacle pipe"))
 			.step(GuideSteps.trainWide("Run laps. Leave if another player shows up.", Spots.WILDERNESS_COURSE, 40, AdvanceWhen.MANUAL, "Obstacle pipe", "Rocks", "Log balance", "Stepping stone"))
 			.save();
 
 		TrainingMethod.builder(out, Skill.AGILITY, "Hallowed Sepulchre")
+			.quest(Quest.SINS_OF_THE_FATHER)
+			.risk(RouteRisk.DANGEROUS)
 			.levels(72, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
@@ -79,7 +85,7 @@ final class SupportMethods
 
 	private static void roof(List<TrainingMethod> out, String name, int min, int max, int priority, int xpHr, WorldPoint start, String summary)
 	{
-		TrainingMethod.builder(out, Skill.AGILITY, name)
+		TrainingMethod.Builder builder = TrainingMethod.builder(out, Skill.AGILITY, name)
 			.levels(min, max)
 			.modes(AccountMode.P2P)
 			.styles(ROOF)
@@ -93,8 +99,12 @@ final class SupportMethods
 			.loop(1)
 			.step(GuideSteps.travel("Go to the start of the course.", start, 12, "Rough wall", "Ladder", "Tree"))
 			.step(GuideSteps.trainWide("Run laps from the start. Pick up marks of grace. RuneLite's Agility plugin counts the laps.", start, 45, AdvanceWhen.MANUAL,
-				"Rough wall", "Tightrope", "Narrow wall", "Gap", "Crate", "Clothes line", "Ledge", "Edge", "Pole-vault", "Jump", "Log balance"))
-			.save();
+				"Rough wall", "Tightrope", "Narrow wall", "Gap", "Crate", "Clothes line", "Ledge", "Edge", "Pole-vault", "Jump", "Log balance").onAnyPlane());
+		if (name.equals("Canifis rooftop"))
+		{
+			builder.quest(Quest.PRIEST_IN_PERIL);
+		}
+		builder.save();
 	}
 
 	private static void thieving(List<TrainingMethod> out)
@@ -111,7 +121,7 @@ final class SupportMethods
 			"Steal silk in East Ardougne. It is a short step before the Hosidius fruit stall.",
 			"Steal from the silk stall.",
 			"Silk stall");
-		steal(out, "Fruit stall", 25, 44, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.AFK, TrainingStyle.FAST}, 2, 40000, Spots.HOSIDIUS, Spots.FRUIT_STALL,
+		steal(out, "Fruit stall", 25, 54, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.AFK, TrainingStyle.FAST}, 2, 40000, Spots.HOSIDIUS, Spots.FRUIT_STALL,
 			"Steal from the Hosidius fruit stall. The bank is in the same square. Empty the inventory when it fills with fruit.",
 			"Steal fruit. Bank it or drop it when you are full.",
 			"Fruit Stall");
@@ -130,23 +140,24 @@ final class SupportMethods
 			.step(GuideSteps.train("Pickpocket the master farmer. Eat when your hitpoints get low. Bank when you are out of food or full of seeds.", Spots.DRAYNOR_FARMER, AdvanceWhen.MANUAL, "Master Farmer"))
 			.save();
 		steal(out, "Ardougne knights", 55, 99, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.AFK}, 3, 60000, Spots.ARDOUGNE_NORTH_BANK, Spots.ARDOUGNE_KNIGHT,
-			"Pickpocket knights of Ardougne. Coin pouches stack until you have 28, then you must open them. At higher levels you fail less and this becomes the calm method. Bring food at 55. The knight by the north side of the market is the usual one. The medium Ardougne Diary makes them stop teleporting away when you are caught, which is a large upgrade.",
+			"Pickpocket knights of Ardougne. Coin pouches stack until you have 28, then you must open them. At higher levels you fail less and this becomes the calm method. Bring food at 55. The knight by the north side of the market is the usual one. The medium Ardougne Diary improves pickpocket success by 10% in Ardougne.",
 			"Pickpocket the knight. Open coin pouches before you hit 28 of them. Eat when you need to.",
 			"Knight of Ardougne");
 		TrainingMethod.builder(out, Skill.THIEVING, "Blackjacking")
+			.quest(Quest.THE_FEUD)
 			.levels(45, 70)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
 			.priority(5)
 			.xp(0, 140000)
-			.summary("Blackjack Menaphite Thugs in Pollnivneach. The Feud is required, and you need a blackjack from the general store or from the bandits. Lure, knock out, pickpocket, and repeat. It is fast and it is miserable. Bring wines or jugs of wine to heal.")
+			.summary("Blackjack bearded bandits from 45, unbearded bandits from 55, and Menaphite Thugs from 65 in Pollnivneach. The Feud is required, and you need a blackjack from the general store or from the bandits. Lure, knock out, pickpocket, and repeat. It is fast and it is miserable. Bring wines or jugs of wine to heal.")
 			.wiki("Blackjack")
 			.note("A focused blackjack rate. Most people do not hold the perfect rate for long.")
 			.opt("Ardougne knights are the calm alternative from 55.")
 			.loop(1)
 			.step(GuideSteps.bank("Withdraw jugs of wine and a blackjack. Complete The Feud if you have not.", Spots.GE))
-			.step(GuideSteps.travel("Go to Pollnivneach. The thugs are in the centre of town.", Spots.POLLNIVNEACH, 15, "Menaphite Thug"))
-			.step(GuideSteps.train("Lure, knock out, and pickpocket. Heal with the wine. This is the whole method.", Spots.POLLNIVNEACH, AdvanceWhen.MANUAL, "Menaphite Thug"))
+			.step(GuideSteps.travel("Go to Pollnivneach. Use bearded bandits below 55, unbearded bandits from 55, and Menaphite Thugs from 65.", Spots.POLLNIVNEACH, 15, "Bandit", "Menaphite Thug"))
+			.step(GuideSteps.train("Lure, knock out, and pickpocket. Heal with the wine. This is the whole method.", Spots.POLLNIVNEACH, AdvanceWhen.MANUAL, "Bandit", "Menaphite Thug"))
 			.save();
 		TrainingMethod.builder(out, Skill.THIEVING, "Pyramid Plunder")
 			.levels(71, 99)
@@ -189,6 +200,7 @@ final class SupportMethods
 	private static void sailing(List<TrainingMethod> out)
 	{
 		TrainingMethod.builder(out, Skill.SAILING, "Port tasks")
+			.quest(Quest.PANDEMONIUM)
 			.levels(1, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.PROFIT, TrainingStyle.AFK)
@@ -206,6 +218,7 @@ final class SupportMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.SAILING, "Shipwreck salvaging")
+			.quest(Quest.PANDEMONIUM)
 			.levels(15, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.AFK)
@@ -222,6 +235,7 @@ final class SupportMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.SAILING, "Barracuda Trials")
+			.quest(Quest.PANDEMONIUM)
 			.levels(30, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)

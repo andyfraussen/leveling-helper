@@ -8,10 +8,10 @@ import com.levelinghelper.guide.GuideTick;
 import com.levelinghelper.guide.LevelLookup;
 import com.levelinghelper.guide.MethodSelector;
 import com.levelinghelper.guide.TrainingMath;
-import com.levelinghelper.guide.XpSession;
 import com.levelinghelper.model.AccountMode;
 import com.levelinghelper.model.GuideStep;
-import com.levelinghelper.model.HighlightMode;
+import com.levelinghelper.model.ItemRequirement;
+import com.levelinghelper.model.StepKind;
 import com.levelinghelper.model.TrainingMethod;
 import com.levelinghelper.model.TrainingStyle;
 import java.awt.image.BufferedImage;
@@ -22,17 +22,15 @@ import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
-import net.runelite.api.GameObject;
 import net.runelite.api.GameState;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.NPC;
-import net.runelite.api.ObjectComposition;
 import net.runelite.api.Player;
-import net.runelite.api.Scene;
+import net.runelite.api.Quest;
+import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
-import net.runelite.api.Tile;
 import net.runelite.api.TileObject;
 import net.runelite.api.VarPlayer;
 import net.runelite.api.WorldType;
@@ -104,12 +102,19 @@ public class LevelingHelperPlugin extends Plugin
 	@Inject
 	private LevelingHelperOverlay overlay;
 
-	private LevelingHelperPanel panel;
+	private volatile LevelingHelperPanel panel;
+	private volatile boolean enabled;
+	private volatile long lifecycle;
 	private NavigationButton navigationButton;
 	private final GuideController controller = new GuideController();
-	private final XpSession session = new XpSession();
-	private final List<NPC> highlightedNpcs = new ArrayList<NPC>();
-	private final List<TileObject> highlightedObjects = new ArrayList<TileObject>();
+	@Inject
+	private SessionLifecycle session;
+
+	@Inject
+	private TargetHighlighter targets;
+
+	@Inject
+	private HintArrowController hintArrows;
 
 	private AccountMode mode = AccountMode.F2P;
 	private TrainingStyle style = TrainingStyle.BALANCED;
@@ -119,9 +124,11 @@ public class LevelingHelperPlugin extends Plugin
 	private String announcedMethodId;
 	private boolean highlightsDirty = true;
 	private boolean goalAnnounced;
-	private boolean guidePaused;
-	private boolean hintOwned;
+	private boolean guidePaused = true;
 	private WorldMapPoint mapPoint;
+	private WorldPoint mapPointTarget;
+	private String mapPointMethod;
+	private static final BufferedImage ICON = icon();
 
 	@Provides
 	LevelingHelperConfig provideConfig(ConfigManager configManager)
@@ -132,15 +139,25 @@ public class LevelingHelperPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
-		mode = config.accountMode();
-		style = config.trainingStyle();
-		goal = clampGoal(config.goalLevel());
-		skill = skillByName(config.skillName());
+		enabled = true;
+		lifecycle++;
 		panel = new LevelingHelperPanel(this);
-		panel.load(mode, style, skill, goal);
+		panel.load(config.accountMode(), config.trainingStyle(), skillByName(config.skillName()), clampGoal(config.goalLevel()));
+		onClient(() ->
+		{
+			stopCurrentGuide();
+			mode = config.accountMode();
+			style = config.trainingStyle();
+			goal = clampGoal(config.goalLevel());
+			skill = skillByName(config.skillName());
+			guidePaused = true;
+			goalAnnounced = false;
+			pinnedId = null;
+			publish();
+		});
 		navigationButton = NavigationButton.builder()
 			.tooltip("Leveling Helper")
-			.icon(icon())
+			.icon(ICON)
 			.priority(6)
 			.panel(panel)
 			.build();
@@ -155,11 +172,16 @@ public class LevelingHelperPlugin extends Plugin
 	{
 		overlayManager.remove(overlay);
 		clientToolbar.removeNavigation(navigationButton);
-		clearHighlights();
-		removeMapPoint();
-		clearOwnedHint();
-		controller.stop();
-		session.stop();
+		enabled = false;
+		long stoppedLifecycle = ++lifecycle;
+		clientThread.invoke(() ->
+		{
+			if (lifecycle == stoppedLifecycle)
+			{
+				guidePaused = true;
+				stopCurrentGuide();
+			}
+		});
 		panel = null;
 		navigationButton = null;
 		log.debug("Leveling Helper stopped");
@@ -168,29 +190,24 @@ public class LevelingHelperPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick tick)
 	{
-		if (!guidePaused && client.getGameState() == GameState.LOGGED_IN)
+		if (!enabled || client.getGameState() != GameState.LOGGED_IN)
+		{
+			return;
+		}
+		if (!guidePaused)
 		{
 			ensureGuiding();
 		}
-		if (controller.running())
+		targets.refresh(trainingEquipmentReady() ? controller.current() : null, highlightsDirty);
+		highlightsDirty = false;
+		if (controller.running() && trainingEquipmentReady())
 		{
-			GuideStep step = controller.current();
-			boolean changed = controller.tick(new GuideTick(
-				playerLocation(),
-				bankOpen(),
-				inventoryFull(),
-				watchedItemGone(step),
-				highlightVisible(step)), config.autoAdvance(), config.arrivalDistance());
+			boolean changed = controller.tick(guideTick(), config.autoAdvance(), config.arrivalDistance());
 			if (changed)
 			{
-				highlightsDirty = true;
+				primeStep();
+				targets.refresh(trainingEquipmentReady() ? controller.current() : null, true);
 			}
-			maybeAdvanceLevel();
-		}
-		if (highlightsDirty)
-		{
-			rebuildHighlights();
-			highlightsDirty = false;
 		}
 		updateHintArrow();
 		updateMapPoint();
@@ -200,25 +217,41 @@ public class LevelingHelperPlugin extends Plugin
 	@Subscribe
 	public void onStatChanged(StatChanged event)
 	{
-		session.onXp(event.getSkill(), event.getXp());
-		if (controller.running() && event.getSkill() == skill)
+		if (!enabled)
 		{
-			maybeAdvanceLevel();
+			return;
+		}
+		session.onXp(event.getSkill(), event.getXp());
+		if (!guidePaused && client.getGameState() == GameState.LOGGED_IN)
+		{
+			ensureGuiding();
 		}
 	}
 
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged event)
 	{
-		if (event.getGameState() == GameState.LOADING || event.getGameState() == GameState.LOGIN_SCREEN)
+		if (!enabled)
 		{
-			clearHighlights();
+			return;
+		}
+		if (event.getGameState() != GameState.LOGGED_IN)
+		{
+			session.stop();
+			targets.clear();
+			hintArrows.clear();
+			removeMapPoint();
 			highlightsDirty = true;
+		}
+		if (event.getGameState() == GameState.LOGIN_SCREEN)
+		{
+			stopCurrentGuide();
+			guidePaused = true;
+			goalAnnounced = false;
 		}
 		if (event.getGameState() == GameState.LOGGED_IN)
 		{
-			goalAnnounced = false;
-			clientThread.invokeLater(this::publish);
+			onClient(this::publish);
 		}
 	}
 
@@ -229,125 +262,163 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			return;
 		}
-		highlightsDirty = true;
-		updateMapPoint();
+		onClient(() ->
+		{
+			highlightsDirty = true;
+			if (!guidePaused)
+			{
+				ensureGuiding();
+			}
+			updateHintArrow();
+			updateMapPoint();
+			publish();
+		});
 	}
 
 	@Subscribe
 	public void onNpcSpawned(NpcSpawned event)
 	{
-		considerNpc(event.getNpc());
+		targets.considerNpc(event.getNpc());
 	}
 
 	@Subscribe
 	public void onNpcDespawned(NpcDespawned event)
 	{
-		highlightedNpcs.remove(event.getNpc());
+		targets.remove(event.getNpc());
 	}
 
 	@Subscribe
 	public void onGameObjectSpawned(GameObjectSpawned event)
 	{
-		considerObject(event.getGameObject());
+		targets.considerObject(event.getGameObject());
 	}
 
 	@Subscribe
 	public void onGameObjectDespawned(GameObjectDespawned event)
 	{
-		highlightedObjects.remove(event.getGameObject());
+		targets.remove(event.getGameObject());
 	}
 
 	@Subscribe
 	public void onWallObjectSpawned(WallObjectSpawned event)
 	{
-		considerObject(event.getWallObject());
+		targets.considerObject(event.getWallObject());
 	}
 
 	@Subscribe
 	public void onWallObjectDespawned(WallObjectDespawned event)
 	{
-		highlightedObjects.remove(event.getWallObject());
+		targets.remove(event.getWallObject());
 	}
 
 	@Subscribe
 	public void onGroundObjectSpawned(GroundObjectSpawned event)
 	{
-		considerObject(event.getGroundObject());
+		targets.considerObject(event.getGroundObject());
 	}
 
 	@Subscribe
 	public void onGroundObjectDespawned(GroundObjectDespawned event)
 	{
-		highlightedObjects.remove(event.getGroundObject());
+		targets.remove(event.getGroundObject());
 	}
 
 	@Subscribe
 	public void onDecorativeObjectSpawned(DecorativeObjectSpawned event)
 	{
-		considerObject(event.getDecorativeObject());
+		targets.considerObject(event.getDecorativeObject());
 	}
 
 	@Subscribe
 	public void onDecorativeObjectDespawned(DecorativeObjectDespawned event)
 	{
-		highlightedObjects.remove(event.getDecorativeObject());
+		targets.remove(event.getDecorativeObject());
+	}
+
+	/** UI commands enqueue the complete mutation, including saved configuration, on the client thread. */
+	private void onClient(Runnable action)
+	{
+		long expected = lifecycle;
+		clientThread.invoke(() ->
+		{
+			if (enabled && lifecycle == expected)
+			{
+				action.run();
+			}
+		});
 	}
 
 	public void setAccountMode(AccountMode value)
 	{
-		mode = value;
-		pinnedId = null;
-		configManager.setConfiguration(LevelingHelperConfig.GROUP, "accountMode", value);
-		clientThread.invoke(this::publish);
+		onClient(() ->
+		{
+			mode = value;
+			pinnedId = null;
+			configManager.setConfiguration(LevelingHelperConfig.GROUP, "accountMode", value);
+			selectionChanged();
+		});
 	}
 
 	public void setTrainingStyle(TrainingStyle value)
 	{
-		style = value;
-		pinnedId = null;
-		guidePaused = false;
-		configManager.setConfiguration(LevelingHelperConfig.GROUP, "trainingStyle", value);
-		refreshRunningMethod(false);
-		clientThread.invoke(this::publish);
+		onClient(() ->
+		{
+			style = value;
+			pinnedId = null;
+			configManager.setConfiguration(LevelingHelperConfig.GROUP, "trainingStyle", value);
+			selectionChanged();
+		});
 	}
 
 	public void setGoal(int value)
 	{
-		goal = clampGoal(value);
-		goalAnnounced = false;
-		configManager.setConfiguration(LevelingHelperConfig.GROUP, "goalLevel", goal);
-		clientThread.invoke(this::publish);
+		onClient(() ->
+		{
+			goal = clampGoal(value);
+			goalAnnounced = false;
+			configManager.setConfiguration(LevelingHelperConfig.GROUP, "goalLevel", goal);
+			selectionChanged();
+		});
 	}
 
 	public void setSkill(Skill value)
 	{
-		if (value == null || value == skill)
+		onClient(() ->
 		{
-			return;
-		}
-		skill = value;
-		pinnedId = null;
-		guidePaused = false;
-		configManager.setConfiguration(LevelingHelperConfig.GROUP, "skillName", value.getName());
-		clientThread.invoke(() ->
-		{
-			ensureGuiding();
-			publish();
+			if (value == null || value == skill)
+			{
+				return;
+			}
+			skill = value;
+			pinnedId = null;
+			configManager.setConfiguration(LevelingHelperConfig.GROUP, "skillName", value.getName());
+			selectionChanged();
 		});
 	}
 
 	public void pinMethod(String id)
 	{
-		pinnedId = id;
-		refreshRunningMethod(true);
-		clientThread.invoke(this::publish);
+		onClient(() ->
+		{
+			pinnedId = id;
+			selectionChanged();
+		});
+	}
+
+	private void selectionChanged()
+	{
+		if (!guidePaused)
+		{
+			ensureGuiding();
+		}
+		publish();
 	}
 
 	public void startGuide()
 	{
-		guidePaused = false;
-		clientThread.invoke(() ->
+		onClient(() ->
 		{
+			guidePaused = false;
 			announcedMethodId = null;
 			ensureGuiding();
 			publish();
@@ -356,24 +427,31 @@ public class LevelingHelperPlugin extends Plugin
 
 	public void stopGuide()
 	{
-		guidePaused = true;
-		clientThread.invoke(() ->
+		onClient(() ->
 		{
-			controller.stop();
-			session.stop();
-			announcedMethodId = null;
-			clearHighlights();
-			removeMapPoint();
-			clearOwnedHint();
+			guidePaused = true;
+			stopCurrentGuide();
 			publish();
 		});
 	}
 
+	private void stopCurrentGuide()
+	{
+		controller.stop();
+		session.stop();
+		announcedMethodId = null;
+		targets.clear();
+		removeMapPoint();
+		hintArrows.clear();
+		highlightsDirty = true;
+	}
+
 	public void nextStep()
 	{
-		clientThread.invoke(() ->
+		onClient(() ->
 		{
 			controller.advance();
+			primeStep();
 			highlightsDirty = true;
 			publish();
 		});
@@ -381,9 +459,10 @@ public class LevelingHelperPlugin extends Plugin
 
 	public void previousStep()
 	{
-		clientThread.invoke(() ->
+		onClient(() ->
 		{
 			controller.back();
+			primeStep();
 			highlightsDirty = true;
 			publish();
 		});
@@ -391,9 +470,10 @@ public class LevelingHelperPlugin extends Plugin
 
 	public void bankStep()
 	{
-		clientThread.invoke(() ->
+		onClient(() ->
 		{
 			controller.jumpToBank();
+			primeStep();
 			highlightsDirty = true;
 			publish();
 		});
@@ -401,7 +481,7 @@ public class LevelingHelperPlugin extends Plugin
 
 	public void detectMembership()
 	{
-		clientThread.invoke(() ->
+		onClient(() ->
 		{
 			if (client.getGameState() != GameState.LOGGED_IN)
 			{
@@ -413,10 +493,7 @@ public class LevelingHelperPlugin extends Plugin
 			mode = detected;
 			pinnedId = null;
 			configManager.setConfiguration(LevelingHelperConfig.GROUP, "accountMode", detected);
-			if (panel != null)
-			{
-				panel.selectMode(detected);
-			}
+			selectionChanged();
 			chat(member ? "Members account. Showing members routes." : "Free-to-play account. Showing free-to-play routes.");
 			publish();
 		});
@@ -433,12 +510,12 @@ public class LevelingHelperPlugin extends Plugin
 
 	List<NPC> highlightedNpcs()
 	{
-		return highlightedNpcs;
+		return targets.npcs();
 	}
 
 	List<TileObject> highlightedObjects()
 	{
-		return highlightedObjects;
+		return targets.objects();
 	}
 
 	GuideController controller()
@@ -495,15 +572,56 @@ public class LevelingHelperPlugin extends Plugin
 			distance,
 			upcoming,
 			MethodSelector.alternatives(TrainingCatalog.all(), skill, mode, level, lookup),
-			status);
+			status, preparation(method, loggedIn), lockedRoutes(lookup, level));
 		final LevelingHelperPanel target = panel;
 		SwingUtilities.invokeLater(() ->
 		{
-			if (target != null)
+			if (enabled && panel == target)
 			{
 				target.apply(snapshot);
 			}
 		});
+	}
+
+	private List<String> preparation(TrainingMethod method, boolean loggedIn)
+	{
+		List<String> details = new ArrayList<>();
+		if (method == null)
+		{
+			return details;
+		}
+		if (method.risk() != com.levelinghelper.model.RouteRisk.SAFE)
+		{
+			details.add(method.risk().description());
+		}
+		for (Quest quest : method.quests())
+		{
+			details.add("Quest complete: " + quest.getName());
+		}
+		details.addAll(method.preparation());
+		if (loggedIn)
+		{
+			details.addAll(missingItems(method));
+		}
+		else for (ItemRequirement item : method.items()) details.add((item.equipped() ? "Equip: " : "Bring: ") + item.label());
+		return details;
+	}
+
+	private List<String> lockedRoutes(LevelLookup lookup, int level)
+	{
+		List<String> locked = new ArrayList<>();
+		for (TrainingMethod method : TrainingCatalog.all())
+		{
+			if (method.skill() == skill && method.modes().contains(mode) && method.containsLevel(level))
+			{
+				List<String> missing = method.unmetRequirements(lookup);
+				if (!missing.isEmpty())
+				{
+					locked.add(method.name() + ": " + String.join(", ", missing));
+				}
+			}
+		}
+		return locked;
 	}
 
 	private String statusFor(boolean loggedIn, TrainingMethod method, int level)
@@ -522,76 +640,18 @@ public class LevelingHelperPlugin extends Plugin
 		}
 		if (method == null)
 		{
-			return "No route for this skill at level " + level + ".";
+			return "No eligible route at level " + level + ". Check the locked routes below for requirements.";
 		}
 		if (mode == AccountMode.P2P && !client.getWorldType().contains(WorldType.MEMBERS))
 		{
 			return "You are on a free-to-play world. Hop before you follow a members route.";
 		}
+		List<String> missing = missingItems(method);
+		if (!missing.isEmpty())
+		{
+			return "Preparation needed: " + String.join("; ", missing) + ". Bank auto-advance waits for these items.";
+		}
 		return "This guides you. It never clicks, banks, or walks for you.";
-	}
-
-	private void maybeAdvanceLevel()
-	{
-		if (!controller.running() || client.getGameState() != GameState.LOGGED_IN)
-		{
-			return;
-		}
-		int level = client.getRealSkillLevel(skill);
-		if (level >= goal)
-		{
-			if (!goalAnnounced)
-			{
-				goalAnnounced = true;
-				chat("Goal reached: level " + goal + " " + skill.getName() + ".");
-			}
-			return;
-		}
-		TrainingMethod current = controller.method();
-		if (current != null && current.containsLevel(level) && current.requirementsMet(liveLookup()))
-		{
-			return;
-		}
-		TrainingMethod next = chooseMethod();
-		if (next == null)
-		{
-			return;
-		}
-		if (current != null && current.id().equals(next.id()))
-		{
-			return;
-		}
-		controller.start(next);
-		highlightsDirty = true;
-		if (!next.id().equals(announcedMethodId))
-		{
-			announcedMethodId = next.id();
-			chat("Next method: " + next.name() + ".");
-		}
-	}
-
-	private void refreshRunningMethod(boolean force)
-	{
-		clientThread.invoke(() ->
-		{
-			if (!controller.running())
-			{
-				return;
-			}
-			TrainingMethod next = chooseMethod();
-			if (next == null)
-			{
-				return;
-			}
-			if (!force && controller.method() != null && controller.method().id().equals(next.id()))
-			{
-				return;
-			}
-			controller.start(next);
-			announcedMethodId = next.id();
-			highlightsDirty = true;
-			publish();
-		});
 	}
 
 	private TrainingMethod chooseMethod()
@@ -643,6 +703,18 @@ public class LevelingHelperPlugin extends Plugin
 					client.getRealSkillLevel(Skill.RANGED),
 					client.getRealSkillLevel(Skill.MAGIC));
 			}
+			@Override
+			public boolean questComplete(Quest quest)
+			{
+				return quest.getState(client) == QuestState.FINISHED;
+			}
+
+			@Override
+			public boolean allowWilderness()
+			{
+				return config.allowWilderness();
+			}
+
 		};
 	}
 
@@ -662,150 +734,6 @@ public class LevelingHelperPlugin extends Plugin
 				return 3;
 			}
 		};
-	}
-
-	private void rebuildHighlights()
-	{
-		highlightedNpcs.clear();
-		highlightedObjects.clear();
-		GuideStep step = controller.current();
-		if (step == null || step.names().isEmpty() || client.getGameState() != GameState.LOGGED_IN)
-		{
-			return;
-		}
-		for (NPC npc : client.getNpcs())
-		{
-			considerNpc(npc);
-		}
-		Scene scene = client.getScene();
-		if (scene == null)
-		{
-			return;
-		}
-		Tile[][][] tiles = scene.getTiles();
-		int plane = client.getPlane();
-		if (tiles == null || plane < 0 || plane >= tiles.length)
-		{
-			return;
-		}
-		for (Tile[] row : tiles[plane])
-		{
-			if (row == null)
-			{
-				continue;
-			}
-			for (Tile tile : row)
-			{
-				if (tile == null)
-				{
-					continue;
-				}
-				GameObject[] gameObjects = tile.getGameObjects();
-				if (gameObjects != null)
-				{
-					for (GameObject gameObject : gameObjects)
-					{
-						considerObject(gameObject);
-					}
-				}
-				considerObject(tile.getWallObject());
-				considerObject(tile.getGroundObject());
-				considerObject(tile.getDecorativeObject());
-			}
-		}
-	}
-
-	private void considerNpc(NPC npc)
-	{
-		GuideStep step = controller.current();
-		if (npc == null || step == null || npc.getName() == null)
-		{
-			return;
-		}
-		if (npc.getWorldLocation() != null && npc.getWorldLocation().getPlane() != client.getPlane())
-		{
-			return;
-		}
-		if (!matches(npc.getName(), step) || !inRange(npc.getWorldLocation(), step))
-		{
-			return;
-		}
-		if (!highlightedNpcs.contains(npc))
-		{
-			highlightedNpcs.add(npc);
-		}
-	}
-
-	private void considerObject(TileObject object)
-	{
-		GuideStep step = controller.current();
-		if (object == null || step == null || object.getId() == -1)
-		{
-			return;
-		}
-		ObjectComposition composition = client.getObjectDefinition(object.getId());
-		if (composition == null)
-		{
-			return;
-		}
-		if (composition.getImpostorIds() != null)
-		{
-			ObjectComposition impostor = composition.getImpostor();
-			if (impostor != null)
-			{
-				composition = impostor;
-			}
-		}
-		if (!matches(composition.getName(), step) || !inRange(object.getWorldLocation(), step))
-		{
-			return;
-		}
-		if (!highlightedObjects.contains(object))
-		{
-			highlightedObjects.add(object);
-		}
-	}
-
-	private boolean matches(String name, GuideStep step)
-	{
-		String cleaned = clean(name);
-		return !cleaned.isEmpty() && !"null".equals(cleaned) && step.names().contains(cleaned);
-	}
-
-	private boolean inRange(WorldPoint location, GuideStep step)
-	{
-		if (step.highlightMode() == HighlightMode.ANYWHERE)
-		{
-			return true;
-		}
-		if (location == null)
-		{
-			return false;
-		}
-		WorldPoint origin = step.highlightMode() == HighlightMode.NEAR_PLAYER ? playerLocation() : step.target();
-		if (origin == null || origin.getPlane() != location.getPlane())
-		{
-			return false;
-		}
-		int dx = Math.abs(origin.getX() - location.getX());
-		int dy = Math.abs(origin.getY() - location.getY());
-		return Math.max(dx, dy) <= step.highlightRadius();
-	}
-
-	private boolean highlightVisible(GuideStep step)
-	{
-		if (step == null || step.names().isEmpty())
-		{
-			return false;
-		}
-		for (NPC npc : client.getNpcs())
-		{
-			if (npc.getName() != null && matches(npc.getName(), step))
-			{
-				return true;
-			}
-		}
-		return false;
 	}
 
 	private boolean bankOpen()
@@ -874,134 +802,132 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			return;
 		}
+		if (client.getRealSkillLevel(skill) >= goal)
+		{
+			if (!goalAnnounced)
+			{
+				goalAnnounced = true;
+				chat("Goal reached: level " + goal + " " + skill.getName() + ".");
+			}
+			guidePaused = true;
+			stopCurrentGuide();
+			return;
+		}
 		TrainingMethod method = chooseMethod();
 		if (method == null)
 		{
+			guidePaused = true;
+			stopCurrentGuide();
 			return;
 		}
-		if (controller.running() && controller.method() != null && controller.method().id().equals(method.id()))
+		session.sync(skill);
+		if (controller.running() && controller.method().id().equals(method.id()))
 		{
 			return;
 		}
+		targets.clear();
+		hintArrows.clear();
+		removeMapPoint();
 		controller.start(method);
-		if (!session.active() || session.skill() != skill)
-		{
-			session.start(skill, client.getSkillExperience(skill));
-		}
+		primeStep();
 		highlightsDirty = true;
 		if (!method.id().equals(announcedMethodId))
 		{
 			announcedMethodId = method.id();
-			GuideStep step = controller.current();
-			String where = step == null || step.target() == null
-				? method.name()
-				: method.name() + ". Follow the yellow arrow.";
-			chat(where);
+			chat(method.name() + ". Follow the highlighted step.");
 		}
+	}
+
+	private GuideTick guideTick()
+	{
+		return new GuideTick(playerLocation(), bankOpen(), inventoryFull(),
+			watchedItemGone(controller.current()), targets.visible(), missingItems(controller.method()).isEmpty(),
+			client.getItemContainer(InventoryID.INV) != null);
+	}
+
+	private void primeStep()
+	{
+		if (controller.running())
+		{
+			controller.observe(guideTick());
+		}
+	}
+
+	private List<String> missingItems(TrainingMethod method)
+	{
+		List<String> missing = new ArrayList<>();
+		if (method == null)
+		{
+			return missing;
+		}
+		for (ItemRequirement requirement : method.items())
+		{
+			ItemContainer inventory = requirement.countsInventory() ? client.getItemContainer(InventoryID.INV) : null;
+			ItemContainer equipment = requirement.countsEquipment() ? client.getItemContainer(InventoryID.WORN) : null;
+			if (!requirement.met(id -> (inventory == null ? 0 : inventory.count(id)) + (equipment == null ? 0 : equipment.count(id))))
+			{
+				missing.add((requirement.equipped() ? "Equip: " : "Bring: ") + requirement.label());
+			}
+		}
+		return missing;
+	}
+
+	private boolean trainingEquipmentReady()
+	{
+		if (!controller.running() || controller.current().kind() != StepKind.TRAIN)
+		{
+			return true;
+		}
+		for (ItemRequirement requirement : controller.method().items())
+		{
+			if (!requirement.equipped())
+			{
+				continue;
+			}
+			ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
+			if (!requirement.met(id -> equipment == null ? 0 : equipment.count(id)))
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private void updateHintArrow()
 	{
-		if (!controller.running() || client.getGameState() != GameState.LOGGED_IN)
-		{
-			clearOwnedHint();
-			return;
-		}
 		GuideStep step = controller.current();
-		if (step == null)
-		{
-			clearOwnedHint();
-			return;
-		}
-		NPC npc = closestNpc();
-		if (npc != null)
-		{
-			client.setHintArrow(npc);
-			hintOwned = true;
-			return;
-		}
-		TileObject object = closestObject();
-		if (object != null && object.getWorldLocation() != null)
-		{
-			client.setHintArrow(object.getWorldLocation());
-			hintOwned = true;
-			return;
-		}
-		if (step.target() != null)
-		{
-			client.setHintArrow(step.target());
-			hintOwned = true;
-			return;
-		}
-		clearOwnedHint();
+		NPC npc = targets.closestNpc();
+		TileObject object = targets.closestObject();
+		WorldPoint point = object != null ? object.getWorldLocation() : step == null ? null : step.target();
+		hintArrows.update(enabled && config.showArrow() && config.showHintArrow() && controller.running() && trainingEquipmentReady(), npc, point);
 	}
 
-	private NPC closestNpc()
+	boolean active()
 	{
-		WorldPoint player = playerLocation();
-		NPC closest = null;
-		int best = Integer.MAX_VALUE;
-		for (NPC npc : highlightedNpcs)
-		{
-			if (npc.getWorldLocation() == null || player == null)
-			{
-				continue;
-			}
-			int distance = player.distanceTo(npc.getWorldLocation());
-			if (distance < best)
-			{
-				best = distance;
-				closest = npc;
-			}
-		}
-		return closest;
-	}
-
-	private TileObject closestObject()
-	{
-		WorldPoint player = playerLocation();
-		TileObject closest = null;
-		int best = Integer.MAX_VALUE;
-		for (TileObject object : highlightedObjects)
-		{
-			if (object.getWorldLocation() == null || player == null)
-			{
-				continue;
-			}
-			int distance = player.distanceTo(object.getWorldLocation());
-			if (distance < best)
-			{
-				best = distance;
-				closest = object;
-			}
-		}
-		return closest;
-	}
-
-	private void clearOwnedHint()
-	{
-		if (!hintOwned || client.getGameState() != GameState.LOGGED_IN)
-		{
-			hintOwned = false;
-			return;
-		}
-		client.clearHintArrow();
-		hintOwned = false;
+		return enabled;
 	}
 
 	private void updateMapPoint()
 	{
-		removeMapPoint();
-		if (!config.showWorldMap() || !controller.running())
+		if (!enabled || !config.showWorldMap() || !controller.running() || client.getGameState() != GameState.LOGGED_IN)
 		{
+			removeMapPoint();
 			return;
 		}
 		GuideStep step = controller.current();
 		if (step == null || step.target() == null)
 		{
+			removeMapPoint();
 			return;
 		}
-		mapPoint = new WorldMapPoint(step.target(), icon());
+		if (step.target().equals(mapPointTarget) && controller.method().id().equals(mapPointMethod))
+		{
+			return;
+		}
+		removeMapPoint();
+		mapPointTarget = step.target();
+		mapPointMethod = controller.method().id();
+		mapPoint = new WorldMapPoint(step.target(), ICON);
 		mapPoint.setTooltip(controller.method().name());
 		mapPoint.setJumpOnClick(true);
 		mapPoint.setName(controller.method().name());
@@ -1015,26 +941,13 @@ public class LevelingHelperPlugin extends Plugin
 			worldMapPointManager.remove(mapPoint);
 			mapPoint = null;
 		}
-	}
-
-	private void clearHighlights()
-	{
-		highlightedNpcs.clear();
-		highlightedObjects.clear();
+		mapPointTarget = null;
+		mapPointMethod = null;
 	}
 
 	private void chat(String message)
 	{
 		client.addChatMessage(ChatMessageType.GAMEMESSAGE, "", "Leveling Helper: " + message, null);
-	}
-
-	private static String clean(String name)
-	{
-		if (name == null)
-		{
-			return "";
-		}
-		return name.replaceAll("<[^>]*>", "").trim().toLowerCase();
 	}
 
 	private static int clampGoal(int value)
@@ -1048,7 +961,10 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			if (candidate.getName().equalsIgnoreCase(name))
 			{
-				return candidate;
+				if (candidate != Skill.OVERALL)
+				{
+					return candidate;
+				}
 			}
 		}
 		return Skill.WOODCUTTING;

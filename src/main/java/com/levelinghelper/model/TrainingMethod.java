@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 
 public final class TrainingMethod
@@ -28,6 +29,10 @@ public final class TrainingMethod
 	private final List<String> optimizations;
 	private final List<GuideStep> steps;
 	private final int loopFrom;
+	private final List<Quest> quests;
+	private final List<ItemRequirement> items;
+	private final List<String> preparation;
+	private final RouteRisk risk;
 
 	private TrainingMethod(
 		String id,
@@ -47,7 +52,11 @@ public final class TrainingMethod
 		String wikiTitle,
 		List<String> optimizations,
 		List<GuideStep> steps,
-		int loopFrom)
+		int loopFrom,
+		List<Quest> quests,
+		List<ItemRequirement> items,
+		List<String> preparation,
+		RouteRisk risk)
 	{
 		this.id = id;
 		this.skill = skill;
@@ -67,6 +76,10 @@ public final class TrainingMethod
 		this.optimizations = optimizations;
 		this.steps = steps;
 		this.loopFrom = loopFrom;
+		this.quests = List.copyOf(quests);
+		this.items = List.copyOf(items);
+		this.preparation = List.copyOf(preparation);
+		this.risk = risk;
 	}
 
 	public String id()
@@ -86,12 +99,12 @@ public final class TrainingMethod
 
 	public EnumSet<AccountMode> modes()
 	{
-		return modes;
+		return EnumSet.copyOf(modes);
 	}
 
 	public EnumSet<TrainingStyle> styles()
 	{
-		return styles;
+		return EnumSet.copyOf(styles);
 	}
 
 	public int minLevel()
@@ -168,7 +181,18 @@ public final class TrainingMethod
 	{
 		if (lookup == null)
 		{
-			return true;
+			return quests.isEmpty() && requirements.isEmpty() && combatRequirement == 0 && risk != RouteRisk.WILDERNESS;
+		}
+		if (risk == RouteRisk.WILDERNESS && !lookup.allowWilderness())
+		{
+			return false;
+		}
+		for (Quest quest : quests)
+		{
+			if (!lookup.questComplete(quest))
+			{
+				return false;
+			}
 		}
 		if (combatRequirement > 0 && lookup.combatLevel() < combatRequirement)
 		{
@@ -182,6 +206,58 @@ public final class TrainingMethod
 			}
 		}
 		return true;
+	}
+
+	public List<String> unmetRequirements(LevelLookup lookup)
+	{
+		List<String> missing = new ArrayList<>();
+		if (lookup == null)
+		{
+			return missing;
+		}
+		if (combatRequirement > lookup.combatLevel())
+		{
+			missing.add("Combat " + combatRequirement);
+		}
+		for (SkillReq requirement : requirements)
+		{
+			if (lookup.level(requirement.skill()) < requirement.level())
+			{
+				missing.add(requirement.skill().getName() + " " + requirement.level());
+			}
+		}
+		for (Quest quest : quests)
+		{
+			if (!lookup.questComplete(quest))
+			{
+				missing.add(quest.getName());
+			}
+		}
+		if (risk == RouteRisk.WILDERNESS && !lookup.allowWilderness())
+		{
+			missing.add("Enable Include Wilderness routes to accept PvP risk");
+		}
+		return List.copyOf(missing);
+	}
+
+	public List<Quest> quests()
+	{
+		return quests;
+	}
+
+	public List<ItemRequirement> items()
+	{
+		return items;
+	}
+
+	public List<String> preparation()
+	{
+		return preparation;
+	}
+
+	public RouteRisk risk()
+	{
+		return risk;
 	}
 
 	@Override
@@ -233,6 +309,10 @@ public final class TrainingMethod
 		private final List<String> opts = new ArrayList<String>();
 		private final List<GuideStep> steps = new ArrayList<GuideStep>();
 		private int loop;
+		private final List<Quest> quests = new ArrayList<>();
+		private final List<ItemRequirement> items = new ArrayList<>();
+		private final List<String> preparation = new ArrayList<>();
+		private RouteRisk risk = RouteRisk.SAFE;
 
 		private Builder(List<TrainingMethod> dest, Skill skill, String name)
 		{
@@ -315,6 +395,42 @@ public final class TrainingMethod
 			return this;
 		}
 
+		public Builder quest(Quest quest)
+		{
+			quests.add(quest);
+			return this;
+		}
+
+		public Builder equipment(String label, int... ids)
+		{
+			items.add(new ItemRequirement(label, true, 1, ids));
+			return this;
+		}
+
+		public Builder supplies(String label, int quantity, int... ids)
+		{
+			items.add(new ItemRequirement(label, false, quantity, ids));
+			return this;
+		}
+
+		public Builder tool(String label, int... ids)
+		{
+			items.add(new ItemRequirement(label, ItemRequirement.Container.EITHER, 1, ids));
+			return this;
+		}
+
+		public Builder prepare(String instruction)
+		{
+			preparation.add(instruction);
+			return this;
+		}
+
+		public Builder risk(RouteRisk risk)
+		{
+			this.risk = risk;
+			return this;
+		}
+
 		public Builder step(GuideStep step)
 		{
 			steps.add(step);
@@ -323,6 +439,11 @@ public final class TrainingMethod
 
 		public void save()
 		{
+			if (min < 1 || max > 99 || min > max || steps.isEmpty()
+				|| loop < 0 || loop >= steps.size() || xpPerHour <= 0 || xpEach < 0 || summary.isEmpty())
+			{
+				throw new IllegalArgumentException("Invalid training method: " + name);
+			}
 			EnumSet<AccountMode> modeSet = modes == null ? EnumSet.of(AccountMode.P2P) : EnumSet.copyOf(modes);
 			EnumSet<TrainingStyle> styleSet = styles == null ? EnumSet.of(TrainingStyle.BALANCED) : EnumSet.copyOf(styles);
 			int loopIndex = steps.isEmpty() ? 0 : Math.max(0, Math.min(loop, steps.size() - 1));
@@ -344,7 +465,7 @@ public final class TrainingMethod
 				wiki,
 				Collections.unmodifiableList(new ArrayList<String>(opts)),
 				Collections.unmodifiableList(new ArrayList<GuideStep>(steps)),
-				loopIndex));
+				loopIndex, quests, items, preparation, risk));
 		}
 	}
 }

@@ -114,15 +114,9 @@ class LevelingHelperPanel extends PluginPanel
 		suppress = false;
 	}
 
-	void selectMode(AccountMode accountMode)
-	{
-		suppress = true;
-		mode.setSelectedItem(accountMode);
-		suppress = false;
-	}
-
 	void apply(GuideSnapshot snapshot)
 	{
+		load(snapshot.mode(), snapshot.style(), snapshot.skill(), snapshot.goal());
 		String next = snapshot.skill().name()
 			+ snapshot.mode()
 			+ snapshot.style()
@@ -133,7 +127,9 @@ class LevelingHelperPanel extends PluginPanel
 			+ snapshot.status()
 			+ (snapshot.method() == null ? "" : snapshot.method().id())
 			+ snapshot.stepIndex()
-			+ snapshot.alternatives().size();
+			+ snapshot.alternatives().toString()
+			+ snapshot.preparation()
+			+ snapshot.lockedRoutes();
 		if (!next.equals(signature) || statsLabel == null)
 		{
 			signature = next;
@@ -154,6 +150,7 @@ class LevelingHelperPanel extends PluginPanel
 		detail.add(Box.createVerticalStrut(6));
 		if (snapshot.method() == null)
 		{
+			appendLockedRoutes(snapshot);
 			statsLabel = null;
 			refresh();
 			return;
@@ -167,13 +164,17 @@ class LevelingHelperPanel extends PluginPanel
 				: 0;
 			GuideStep currentStep = method.steps().get(stepIndex);
 			String heading = currentStep.instruction();
-			if (!snapshot.distanceText().isEmpty())
-			{
-				heading = heading + "\n" + snapshot.distanceText();
-			}
 			detail.add(text(heading, new Color(255, 214, 120)));
 		}
 		detail.add(text(method.summary(), TEXT));
+		if (!snapshot.preparation().isEmpty())
+		{
+			detail.add(text("Before training", TEXT));
+			for (String requirement : snapshot.preparation())
+			{
+				detail.add(text(requirement, WARN));
+			}
+		}
 		statsLabel = text(stats(snapshot), DIM);
 		detail.add(statsLabel);
 		detail.add(text(method.rateNote(), DIM));
@@ -243,7 +244,22 @@ class LevelingHelperPanel extends PluginPanel
 			detail.add(Box.createVerticalStrut(4));
 			detail.add(wiki);
 		}
+		appendLockedRoutes(snapshot);
 		refresh();
+	}
+
+	private void appendLockedRoutes(GuideSnapshot snapshot)
+	{
+		if (snapshot.lockedRoutes().isEmpty())
+		{
+			return;
+		}
+		detail.add(Box.createVerticalStrut(6));
+		detail.add(text("Locked routes", DIM));
+		for (String locked : snapshot.lockedRoutes())
+		{
+			detail.add(text(locked, DIM));
+		}
 	}
 
 	private String stats(GuideSnapshot snapshot)
@@ -395,7 +411,7 @@ class LevelingHelperPanel extends PluginPanel
 
 	private static String html(String value)
 	{
-		return "<html><body style='width:190px'>" + escape(value) + "</body></html>";
+		return "<html><body>" + escape(value) + "</body></html>";
 	}
 
 	private static final class WrapLabel extends JLabel
@@ -414,16 +430,24 @@ class LevelingHelperPanel extends PluginPanel
 			int width = 205;
 			if (getParent() != null && getParent().getWidth() > 40)
 			{
-				width = getParent().getWidth();
+				Insets insets = getParent().getInsets();
+				width = Math.max(1, getParent().getWidth() - insets.left - insets.right);
 			}
 			View view = (View) getClientProperty(BasicHTML.propertyKey);
 			if (view == null)
 			{
 				return super.getPreferredSize();
 			}
-			view.setSize(width, 0);
+			Insets insets = getInsets();
+			view.setSize(Math.max(1, width - insets.left - insets.right), 0);
 			int height = (int) Math.ceil(view.getPreferredSpan(View.Y_AXIS));
-			return new Dimension(width, Math.max(16, height));
+			return new Dimension(width, Math.max(16, height + insets.top + insets.bottom));
+		}
+
+		@Override
+		public Dimension getMinimumSize()
+		{
+			return new Dimension(0, getPreferredSize().height);
 		}
 
 		@Override

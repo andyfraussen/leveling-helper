@@ -58,6 +58,28 @@ public interface LevelingHelperConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "showHintArrow",
+		name = "Native hint arrow",
+		description = "Also use the game's shared yellow arrow when no other plugin or server arrow is active.",
+		position = 9
+	)
+	default boolean showHintArrow()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "allowWilderness",
+		name = "Include Wilderness routes",
+		description = "Allow routes where other players can kill you and take your items. Disabled by default.",
+		position = 10
+	)
+	default boolean allowWilderness()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "showWorldMap",
 		name = "World map marker",
 		description = "Mark the destination on the world map.",
@@ -83,7 +105,7 @@ public interface LevelingHelperConfig extends Config
 	@ConfigItem(
 		keyName = "arrivalDistance",
 		name = "Arrival distance",
-		description = "How close, in tiles, counts as arriving.",
+		description = "Maximum distance in tiles that counts as arriving. Routes may require a tighter radius.",
 		position = 7
 	)
 	default int arrivalDistance()

@@ -1,5 +1,6 @@
 package com.levelinghelper;
 
+import com.levelinghelper.guide.DirectionArrow;
 import com.levelinghelper.guide.GuideController;
 import com.levelinghelper.guide.TrainingMath;
 import com.levelinghelper.model.GuideStep;
@@ -9,11 +10,13 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.Polygon;
+import java.awt.Rectangle;
 import java.awt.Shape;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.DecorativeObject;
 import net.runelite.api.GameObject;
+import net.runelite.api.GameState;
 import net.runelite.api.GroundObject;
 import net.runelite.api.NPC;
 import net.runelite.api.Player;
@@ -46,7 +49,7 @@ class LevelingHelperOverlay extends Overlay
 	public Dimension render(Graphics2D graphics)
 	{
 		GuideController controller = plugin.controller();
-		if (!controller.running())
+		if (!plugin.active() || !controller.running() || client.getGameState() != GameState.LOGGED_IN)
 		{
 			return null;
 		}
@@ -78,7 +81,7 @@ class LevelingHelperOverlay extends Overlay
 
 	private void renderTile(Graphics2D graphics, WorldPoint target, Color color)
 	{
-		if (target == null)
+		if (target == null || target.getPlane() != client.getPlane())
 		{
 			return;
 		}
@@ -121,35 +124,20 @@ class LevelingHelperOverlay extends Overlay
 		{
 			return;
 		}
+		Rectangle viewport = new Rectangle(client.getViewportXOffset(), client.getViewportYOffset(),
+			client.getViewportWidth(), client.getViewportHeight());
 		LocalPoint local = LocalPoint.fromWorld(client, target);
-		if (local != null && net.runelite.api.Perspective.getCanvasTilePoly(client, local) != null)
+		Polygon tile = local == null ? null : net.runelite.api.Perspective.getCanvasTilePoly(client, local);
+		if (tile != null && tile.intersects(viewport))
 		{
 			return;
 		}
-		int dx = target.getX() - player.getWorldLocation().getX();
-		int dy = target.getY() - player.getWorldLocation().getY();
-		double length = Math.hypot(dx, dy);
-		if (length < 1)
+		Polygon triangle = DirectionArrow.polygon(target.getX() - player.getWorldLocation().getX(),
+			target.getY() - player.getWorldLocation().getY(), client.getCameraYaw(), viewport);
+		if (triangle == null)
 		{
 			return;
 		}
-		double ux = dx / length;
-		double uy = -dy / length;
-		int centerX = client.getCanvasWidth() / 2;
-		int centerY = client.getCanvasHeight() / 2;
-		int margin = 48;
-		double reachX = ux == 0 ? 1000 : ((ux > 0 ? client.getCanvasWidth() - margin : margin) - centerX) / ux;
-		double reachY = uy == 0 ? 1000 : ((uy > 0 ? client.getCanvasHeight() - margin : margin) - centerY) / uy;
-		double reach = Math.max(40, Math.min(reachX, reachY));
-		int x = centerX + (int) (ux * reach);
-		int y = centerY + (int) (uy * reach);
-		int size = 16;
-		double px = -uy;
-		double py = ux;
-		Polygon triangle = new Polygon();
-		triangle.addPoint(x + (int) (ux * size), y + (int) (uy * size));
-		triangle.addPoint(x - (int) (ux * size) + (int) (px * 6), y - (int) (uy * size) + (int) (py * 6));
-		triangle.addPoint(x - (int) (ux * size) - (int) (px * 6), y - (int) (uy * size) - (int) (py * 6));
 		graphics.setColor(color);
 		graphics.fill(triangle);
 	}
