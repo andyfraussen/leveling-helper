@@ -13,9 +13,9 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
@@ -53,9 +53,9 @@ class LevelingHelperMinimapOverlay extends Overlay
 		{
 			return null;
 		}
-		Widget map = client.getWidget(!client.isResized() ? WidgetInfo.FIXED_VIEWPORT_MINIMAP_DRAW_AREA
+		Widget map = client.getWidget(!client.isResized() ? InterfaceID.Toplevel.MINIMAP
 			: client.getVarbitValue(VarbitID.RESIZABLE_STONE_ARRANGEMENT) == 1
-				? WidgetInfo.RESIZABLE_MINIMAP_DRAW_AREA : WidgetInfo.RESIZABLE_MINIMAP_STONES_DRAW_AREA);
+				? InterfaceID.ToplevelPreEoc.MINIMAP : InterfaceID.ToplevelOsrsStretch.MINIMAP);
 		if (map == null || map.isHidden())
 		{
 			return null;

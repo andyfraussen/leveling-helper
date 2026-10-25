@@ -8,9 +8,9 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetInfo;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -33,7 +33,7 @@ public class MinimapOverlayTest
 		when(client.getLocalPlayer()).thenReturn(player);
 		when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
 		when(client.getMinimapZoom()).thenReturn(4d);
-		when(client.getWidget(any(WidgetInfo.class))).thenReturn(map);
+		when(client.getWidget(anyInt())).thenReturn(map);
 		when(map.getBounds()).thenReturn(bounds);
 		when(config.showArrow()).thenReturn(true);
 		when(config.highlightColor()).thenReturn(Color.GREEN);
@@ -54,9 +54,9 @@ public class MinimapOverlayTest
 				assertTrue(pixels(render(), true) > 0);
 			}
 		}
-		verify(client).getWidget(WidgetInfo.RESIZABLE_MINIMAP_DRAW_AREA);
-		verify(client).getWidget(WidgetInfo.RESIZABLE_MINIMAP_STONES_DRAW_AREA);
-		verify(client, times(2)).getWidget(WidgetInfo.FIXED_VIEWPORT_MINIMAP_DRAW_AREA);
+		verify(client).getWidget(InterfaceID.ToplevelPreEoc.MINIMAP);
+		verify(client).getWidget(InterfaceID.ToplevelOsrsStretch.MINIMAP);
+		verify(client, times(2)).getWidget(InterfaceID.Toplevel.MINIMAP);
 		verify(client, never()).setHintArrow(any(WorldPoint.class));
 		verify(client, never()).clearHintArrow();
 	}
