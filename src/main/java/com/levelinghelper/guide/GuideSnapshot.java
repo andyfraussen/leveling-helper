@@ -1,6 +1,7 @@
 package com.levelinghelper.guide;
 
 import com.levelinghelper.model.AccountMode;
+import com.levelinghelper.model.GuideStep;
 import com.levelinghelper.model.TrainingMethod;
 import com.levelinghelper.model.TrainingStyle;
 import java.util.Collections;
@@ -28,6 +29,8 @@ public final class GuideSnapshot
 	private final String status;
 	private final List<String> preparation;
 	private final List<String> lockedRoutes;
+	private final GuideStep preparationStep;
+	private final boolean itemsReady;
 
 	public GuideSnapshot(
 		boolean loggedIn,
@@ -48,6 +51,31 @@ public final class GuideSnapshot
 		List<TrainingMethod> alternatives,
 		String status, List<String> preparation, List<String> lockedRoutes)
 	{
+		this(loggedIn, membersWorld, skill, mode, style, goal, level, xp, running, method, stepIndex,
+			sessionXp, sessionPerHour, distanceText, upcoming, alternatives, status, preparation, lockedRoutes, null, false);
+	}
+
+	public GuideSnapshot(
+		boolean loggedIn,
+		boolean membersWorld,
+		Skill skill,
+		AccountMode mode,
+		TrainingStyle style,
+		int goal,
+		int level,
+		int xp,
+		boolean running,
+		TrainingMethod method,
+		int stepIndex,
+		int sessionXp,
+		double sessionPerHour,
+		String distanceText,
+		TrainingMethod upcoming,
+		List<TrainingMethod> alternatives,
+		String status, List<String> preparation, List<String> lockedRoutes, GuideStep preparationStep, boolean itemsReady)
+	{
+		this.preparationStep = preparationStep;
+		this.itemsReady = itemsReady;
 		this.loggedIn = loggedIn;
 		this.membersWorld = membersWorld;
 		this.skill = skill;
@@ -68,6 +96,9 @@ public final class GuideSnapshot
 		this.preparation = List.copyOf(preparation);
 		this.lockedRoutes = List.copyOf(lockedRoutes);
 	}
+
+	public GuideStep preparationStep() { return preparationStep; }
+	public boolean itemsReady() { return itemsReady; }
 
 	public boolean loggedIn()
 	{

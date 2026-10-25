@@ -1,6 +1,7 @@
 package com.levelinghelper.model;
 
 import com.levelinghelper.guide.LevelLookup;
+import com.levelinghelper.guide.GuideSteps;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -33,6 +34,16 @@ public final class TrainingMethod
 	private final List<ItemRequirement> items;
 	private final List<String> preparation;
 	private final RouteRisk risk;
+	private final int preparationFreeSlots;
+	private TrainingMethod bankingVariant;
+	private TrainingMethod sourceMethod;
+	private boolean preparationReviewed;
+	private List<String> manualChecks = Collections.emptyList();
+	private ResourceHandling resourceHandling;
+	private String noItemsReason = "";
+	private String localRestock;
+	private java.util.function.Function<LevelLookup, List<ItemRequirement>> resolveItems = lookup -> Collections.emptyList();
+	private java.util.function.Function<LevelLookup, List<String>> setupIssues = lookup -> Collections.emptyList();
 
 	private TrainingMethod(
 		String id,
@@ -56,7 +67,7 @@ public final class TrainingMethod
 		List<Quest> quests,
 		List<ItemRequirement> items,
 		List<String> preparation,
-		RouteRisk risk)
+		RouteRisk risk, int preparationFreeSlots)
 	{
 		this.id = id;
 		this.skill = skill;
@@ -80,6 +91,124 @@ public final class TrainingMethod
 		this.items = List.copyOf(items);
 		this.preparation = List.copyOf(preparation);
 		this.risk = risk;
+		this.preparationFreeSlots = preparationFreeSlots;
+	}
+
+	private TrainingMethod(TrainingMethod source, String summary, List<GuideStep> bankingSteps)
+	{
+		this(source.id + ":bank", source.skill, source.name, source.modes, source.styles,
+			source.minLevel, source.maxLevel, source.priority, source.combatRequirement, source.requirements,
+			source.xpEach, 0,
+			"Bank trips reduce the training rate. Your session rate includes time spent travelling and banking.",
+			summary, source.wikiTitle, Collections.singletonList("Keep the resources and deposit them at the highlighted bank when full."),
+			List.copyOf(bankingSteps), 0, source.quests, source.items, source.preparation, source.risk, source.preparationFreeSlots);
+		this.sourceMethod = source;
+		this.preparationReviewed = source.preparationReviewed;
+		this.manualChecks = source.manualChecks;
+		this.resourceHandling = ResourceHandling.BANK;
+		this.noItemsReason = source.noItemsReason;
+		this.localRestock = source.localRestock;
+		this.resolveItems = source.resolveItems;
+		this.setupIssues = source.setupIssues;
+	}
+
+	public List<ItemRequirement> resolvedItems(LevelLookup lookup)
+	{
+		List<ItemRequirement> all = new ArrayList<>(items);
+		all.addAll(resolveItems.apply(lookup));
+		return List.copyOf(all);
+	}
+
+	public List<String> setupIssues(LevelLookup lookup) { return List.copyOf(setupIssues.apply(lookup)); }
+	public boolean preparationReviewed() { return preparationReviewed; }
+	public List<String> manualChecks() { return manualChecks; }
+	public ResourceHandling resourceHandling() { return resourceHandling; }
+	public String noItemsReason() { return noItemsReason; }
+	public String localRestock() { return localRestock; }
+
+	public TrainingMethod reviewed(PreparationPlan plan)
+	{
+		List<ItemRequirement> inputs = new ArrayList<>(items);
+		for (ItemRequirement input : plan.items)
+		{
+			if (inputs.stream().noneMatch(existing -> existing.label().equals(input.label()))) inputs.add(input);
+		}
+		if (inputs.isEmpty() && plan.noItemsReason.isEmpty() && !plan.dynamicItems)
+		{
+			throw new IllegalArgumentException("Unreviewed item preparation: " + id);
+		}
+		List<GuideStep> route = new ArrayList<>(steps);
+		int loop = loopFrom;
+		boolean needsBank = inputs.stream().anyMatch(item -> !item.optional())
+			|| plan.dynamicItems;
+		if (needsBank && route.stream().noneMatch(step -> step.kind() == StepKind.BANK))
+		{
+			route.add(0, GuideSteps.anyBank("Prepare the required tools and supplies, then close the bank."));
+			loop++;
+		}
+		if (plan.handling == ResourceHandling.BANK)
+		{
+			for (int i = route.size() - 1; i >= 0; i--)
+			{
+				GuideStep step = route.get(i);
+				if (step.kind() == StepKind.TRAIN)
+				{
+					route.set(i, step.describedAs(step.instruction() + " Bank the collected resources when full.", AdvanceWhen.INVENTORY_FULL));
+					break;
+				}
+			}
+			for (int i = 0; i < route.size(); i++) if (route.get(i).kind() == StepKind.BANK) { loop = i; break; }
+		}
+		int freeSlots = preparationFreeSlots >= 0 ? preparationFreeSlots
+			: plan.handling == ResourceHandling.BANK || plan.handling == ResourceHandling.BANK_OR_DROP ? 1 : 0;
+		TrainingMethod copy = new TrainingMethod(id, skill, name, modes, styles, minLevel, maxLevel, priority,
+			combatRequirement, requirements, xpEach, xpPerHour, rateNote, summary, wikiTitle, optimizations,
+			List.copyOf(route), loop, quests, inputs, preparation, risk, freeSlots);
+		copy.preparationReviewed = true;
+		List<String> checks = new ArrayList<>(manualChecks);
+		checks.addAll(preparation);
+		checks.addAll(plan.manualChecks);
+		copy.manualChecks = List.copyOf(new java.util.LinkedHashSet<>(checks));
+		copy.resourceHandling = plan.handling;
+		copy.noItemsReason = plan.noItemsReason;
+		copy.localRestock = plan.localRestock;
+		copy.resolveItems = plan.resolveItems;
+		copy.setupIssues = plan.setupIssues;
+		if (bankingVariant != null)
+		{
+			copy.bankingVariant = new TrainingMethod(copy, bankingVariant.summary, bankingVariant.steps);
+		}
+		else if (route.stream().anyMatch(step -> step.kind() == StepKind.DROP))
+		{
+			List<GuideStep> bankRoute = new ArrayList<>();
+			GuideStep bank = route.stream().filter(step -> step.kind() == StepKind.BANK).findFirst()
+				.orElseThrow(() -> new IllegalArgumentException("A collecting route needs a bank destination: " + id));
+			bankRoute.add(bank.describedAs("Deposit collected resources and keep the required tools and supplies.", AdvanceWhen.BANK_CLOSED));
+			for (GuideStep step : route)
+			{
+				if (step.kind() == StepKind.BANK || step.kind() == StepKind.DROP) continue;
+				bankRoute.add(step.kind() == StepKind.TRAIN
+					? step.describedAs("Continue " + name + ". Bank collected resources when your inventory is full.", AdvanceWhen.INVENTORY_FULL) : step);
+			}
+			copy.bankingVariant = new TrainingMethod(copy, "Follow the highlighted " + name + " route. Keep the resources and bank them when full.", bankRoute);
+		}
+		return copy;
+	}
+
+	/** A resource choice keeps the selected style's banking behavior, including manual selections. */
+	public TrainingMethod forStyle(TrainingStyle style)
+	{
+		if (sourceMethod != null)
+		{
+			return sourceMethod.forStyle(style);
+		}
+		return style == TrainingStyle.PROFIT && bankingVariant != null ? bankingVariant : this;
+	}
+
+	/** -1 leaves manual/special preparation intact; otherwise item checks can skip a bank visit. */
+	public int preparationFreeSlots()
+	{
+		return preparationFreeSlots;
 	}
 
 	public String id()
@@ -263,7 +392,7 @@ public final class TrainingMethod
 	@Override
 	public String toString()
 	{
-		return name + "  " + minLevel + "-" + maxLevel;
+		return name + (sourceMethod == null ? "" : " (banking)") + "  " + minLevel + "-" + maxLevel;
 	}
 
 	public String styleLabel()
@@ -313,6 +442,9 @@ public final class TrainingMethod
 		private final List<ItemRequirement> items = new ArrayList<>();
 		private final List<String> preparation = new ArrayList<>();
 		private RouteRisk risk = RouteRisk.SAFE;
+		private int preparationFreeSlots = -1;
+		private String bankingSummary;
+		private List<GuideStep> bankingSteps;
 
 		private Builder(List<TrainingMethod> dest, Skill skill, String name)
 		{
@@ -419,6 +551,34 @@ public final class TrainingMethod
 			return this;
 		}
 
+		public Builder toolFrom(String label, String source, int... ids)
+		{
+			items.add(new ItemRequirement(label, ItemRequirement.Container.EITHER, 1, ids).from(source));
+			return this;
+		}
+
+		public Builder equipmentFrom(String label, String source, int... ids)
+		{
+			items.add(new ItemRequirement(label, true, 1, ids).from(source));
+			return this;
+		}
+
+		public Builder item(ItemRequirement item)
+		{
+			items.add(item);
+			return this;
+		}
+
+		public Builder itemPreparation(int freeSlots)
+		{
+			if (freeSlots < 0 || freeSlots > 28)
+			{
+				throw new IllegalArgumentException("Invalid free slot requirement");
+			}
+			preparationFreeSlots = freeSlots;
+			return this;
+		}
+
 		public Builder prepare(String instruction)
 		{
 			preparation.add(instruction);
@@ -437,17 +597,30 @@ public final class TrainingMethod
 			return this;
 		}
 
+		public Builder banking(String summary, GuideStep... steps)
+		{
+			if (summary.isEmpty() || steps.length < 2 || steps[0].kind() != StepKind.BANK
+				|| Arrays.stream(steps).anyMatch(step -> step.kind() == StepKind.DROP))
+			{
+				throw new IllegalArgumentException("A banking variant needs a bank loop without dropping");
+			}
+			bankingSummary = summary;
+			bankingSteps = List.copyOf(Arrays.asList(steps));
+			return this;
+		}
+
 		public void save()
 		{
 			if (min < 1 || max > 99 || min > max || steps.isEmpty()
-				|| loop < 0 || loop >= steps.size() || xpPerHour <= 0 || xpEach < 0 || summary.isEmpty())
+				|| loop < 0 || loop >= steps.size() || xpPerHour <= 0 || xpEach < 0 || summary.isEmpty()
+				|| preparationFreeSlots >= 0 && items.isEmpty())
 			{
 				throw new IllegalArgumentException("Invalid training method: " + name);
 			}
 			EnumSet<AccountMode> modeSet = modes == null ? EnumSet.of(AccountMode.P2P) : EnumSet.copyOf(modes);
 			EnumSet<TrainingStyle> styleSet = styles == null ? EnumSet.of(TrainingStyle.BALANCED) : EnumSet.copyOf(styles);
 			int loopIndex = steps.isEmpty() ? 0 : Math.max(0, Math.min(loop, steps.size() - 1));
-			dest.add(new TrainingMethod(
+			TrainingMethod method = new TrainingMethod(
 				skill.name() + ":" + modeSet + ":" + min + "-" + max + ":" + name,
 				skill,
 				name,
@@ -465,7 +638,12 @@ public final class TrainingMethod
 				wiki,
 				Collections.unmodifiableList(new ArrayList<String>(opts)),
 				Collections.unmodifiableList(new ArrayList<GuideStep>(steps)),
-				loopIndex, quests, items, preparation, risk));
+				loopIndex, quests, items, preparation, risk, preparationFreeSlots);
+			if (bankingSteps != null)
+			{
+				method.bankingVariant = new TrainingMethod(method, bankingSummary, bankingSteps);
+			}
+			dest.add(method);
 		}
 	}
 }

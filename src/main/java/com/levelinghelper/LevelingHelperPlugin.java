@@ -2,6 +2,10 @@ package com.levelinghelper;
 
 import com.google.inject.Provides;
 import com.levelinghelper.data.TrainingCatalog;
+import com.levelinghelper.data.Spots;
+import com.levelinghelper.guide.GuideSteps;
+import com.levelinghelper.model.AdvanceWhen;
+import com.levelinghelper.model.HighlightMode;
 import com.levelinghelper.guide.GuideController;
 import com.levelinghelper.guide.GuideSnapshot;
 import com.levelinghelper.guide.GuideTick;
@@ -26,6 +30,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.ItemID;
 import net.runelite.api.NPC;
 import net.runelite.api.Player;
 import net.runelite.api.Quest;
@@ -41,6 +46,7 @@ import net.runelite.api.events.GameObjectDespawned;
 import net.runelite.api.events.GameObjectSpawned;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.GroundObjectDespawned;
 import net.runelite.api.events.GroundObjectSpawned;
 import net.runelite.api.events.NpcDespawned;
@@ -107,6 +113,13 @@ public class LevelingHelperPlugin extends Plugin
 	private volatile long lifecycle;
 	private NavigationButton navigationButton;
 	private final GuideController controller = new GuideController();
+	private final SupplyTracker supplies = new SupplyTracker();
+	private GuideStep supplyStep;
+	private boolean forceBank;
+	private boolean requestedBankOpened;
+	private boolean departurePrepared;
+	private List<SupplyTracker.Stock> stockCache;
+	private TrainingMethod stockCacheMethod;
 	@Inject
 	private SessionLifecycle session;
 
@@ -116,6 +129,9 @@ public class LevelingHelperPlugin extends Plugin
 	@Inject
 	private HintArrowController hintArrows;
 
+	@Inject
+	private LevelingHelperMinimapOverlay minimapOverlay;
+
 	private AccountMode mode = AccountMode.F2P;
 	private TrainingStyle style = TrainingStyle.BALANCED;
 	private Skill skill = Skill.WOODCUTTING;
@@ -124,7 +140,7 @@ public class LevelingHelperPlugin extends Plugin
 	private String announcedMethodId;
 	private boolean highlightsDirty = true;
 	private boolean goalAnnounced;
-	private boolean guidePaused = true;
+	private boolean manualModeOverride;
 	private WorldMapPoint mapPoint;
 	private WorldPoint mapPointTarget;
 	private String mapPointMethod;
@@ -146,13 +162,16 @@ public class LevelingHelperPlugin extends Plugin
 		onClient(() ->
 		{
 			stopCurrentGuide();
+			supplies.clear();
 			mode = config.accountMode();
 			style = config.trainingStyle();
 			goal = clampGoal(config.goalLevel());
 			skill = skillByName(config.skillName());
-			guidePaused = true;
+			manualModeOverride = false;
 			goalAnnounced = false;
 			pinnedId = null;
+			syncMembership();
+			ensureGuiding();
 			publish();
 		});
 		navigationButton = NavigationButton.builder()
@@ -163,6 +182,7 @@ public class LevelingHelperPlugin extends Plugin
 			.build();
 		clientToolbar.addNavigation(navigationButton);
 		overlayManager.add(overlay);
+		overlayManager.add(minimapOverlay);
 		highlightsDirty = true;
 		log.debug("Leveling Helper started");
 	}
@@ -171,6 +191,7 @@ public class LevelingHelperPlugin extends Plugin
 	protected void shutDown()
 	{
 		overlayManager.remove(overlay);
+		overlayManager.remove(minimapOverlay);
 		clientToolbar.removeNavigation(navigationButton);
 		enabled = false;
 		long stoppedLifecycle = ++lifecycle;
@@ -178,7 +199,6 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			if (lifecycle == stoppedLifecycle)
 			{
-				guidePaused = true;
 				stopCurrentGuide();
 			}
 		});
@@ -194,19 +214,34 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			return;
 		}
-		if (!guidePaused)
+		stockCache = null;
+		syncMembership();
+		observeBank();
+		if (forceBank && bankOpen())
 		{
-			ensureGuiding();
+			requestedBankOpened = true;
 		}
-		targets.refresh(trainingEquipmentReady() ? controller.current() : null, highlightsDirty);
+		if (forceBank && requestedBankOpened && !bankOpen())
+		{
+			forceBank = false;
+			requestedBankOpened = false;
+		}
+		ensureGuiding();
+		updateSupplies();
+		if (controller.running())
+		{
+			controller.observe(guideTick());
+		}
+		targets.refresh(trainingEquipmentReady() ? currentStep() : null, highlightsDirty);
 		highlightsDirty = false;
-		if (controller.running() && trainingEquipmentReady())
+		if (controller.running() && supplyStep == null && trainingEquipmentReady())
 		{
 			boolean changed = controller.tick(guideTick(), config.autoAdvance(), config.arrivalDistance());
 			if (changed)
 			{
 				primeStep();
-				targets.refresh(trainingEquipmentReady() ? controller.current() : null, true);
+				updateSupplies();
+				targets.refresh(trainingEquipmentReady() ? currentStep() : null, true);
 			}
 		}
 		updateHintArrow();
@@ -217,12 +252,13 @@ public class LevelingHelperPlugin extends Plugin
 	@Subscribe
 	public void onStatChanged(StatChanged event)
 	{
+		stockCache = null;
 		if (!enabled)
 		{
 			return;
 		}
 		session.onXp(event.getSkill(), event.getXp());
-		if (!guidePaused && client.getGameState() == GameState.LOGGED_IN)
+		if (client.getGameState() == GameState.LOGGED_IN)
 		{
 			ensureGuiding();
 		}
@@ -238,6 +274,8 @@ public class LevelingHelperPlugin extends Plugin
 		if (event.getGameState() != GameState.LOGGED_IN)
 		{
 			session.stop();
+			supplies.clear();
+			supplyStep = null;
 			targets.clear();
 			hintArrows.clear();
 			removeMapPoint();
@@ -246,12 +284,17 @@ public class LevelingHelperPlugin extends Plugin
 		if (event.getGameState() == GameState.LOGIN_SCREEN)
 		{
 			stopCurrentGuide();
-			guidePaused = true;
+			manualModeOverride = false;
 			goalAnnounced = false;
 		}
 		if (event.getGameState() == GameState.LOGGED_IN)
 		{
-			onClient(this::publish);
+			onClient(() ->
+			{
+				syncMembership();
+				ensureGuiding();
+				publish();
+			});
 		}
 	}
 
@@ -265,10 +308,7 @@ public class LevelingHelperPlugin extends Plugin
 		onClient(() ->
 		{
 			highlightsDirty = true;
-			if (!guidePaused)
-			{
-				ensureGuiding();
-			}
+			ensureGuiding();
 			updateHintArrow();
 			updateMapPoint();
 			publish();
@@ -352,7 +392,9 @@ public class LevelingHelperPlugin extends Plugin
 	{
 		onClient(() ->
 		{
+			manualModeOverride = client.getGameState() == GameState.LOGGED_IN && client.getLocalPlayer() != null;
 			mode = value;
+			ensureVisibleSkill();
 			pinnedId = null;
 			configManager.setConfiguration(LevelingHelperConfig.GROUP, "accountMode", value);
 			selectionChanged();
@@ -385,7 +427,7 @@ public class LevelingHelperPlugin extends Plugin
 	{
 		onClient(() ->
 		{
-			if (value == null || value == skill)
+			if (value == null || value == Skill.OVERALL || value == skill || mode == AccountMode.F2P && value.isMembers())
 			{
 				return;
 			}
@@ -407,37 +449,19 @@ public class LevelingHelperPlugin extends Plugin
 
 	private void selectionChanged()
 	{
-		if (!guidePaused)
-		{
-			ensureGuiding();
-		}
+		stockCache = null;
+		goalAnnounced = false;
+		ensureGuiding();
+		updateSupplies();
 		publish();
-	}
-
-	public void startGuide()
-	{
-		onClient(() ->
-		{
-			guidePaused = false;
-			announcedMethodId = null;
-			ensureGuiding();
-			publish();
-		});
-	}
-
-	public void stopGuide()
-	{
-		onClient(() ->
-		{
-			guidePaused = true;
-			stopCurrentGuide();
-			publish();
-		});
 	}
 
 	private void stopCurrentGuide()
 	{
 		controller.stop();
+		supplyStep = null;
+		forceBank = false;
+		requestedBankOpened = false;
 		session.stop();
 		announcedMethodId = null;
 		targets.clear();
@@ -450,8 +474,23 @@ public class LevelingHelperPlugin extends Plugin
 	{
 		onClient(() ->
 		{
-			controller.advance();
-			primeStep();
+			if (supplyStep != null)
+			{
+				// First-trip fees/traps can already be paid or deployed when this guide is selected.
+				List<SupplyTracker.Stock> missing = requiredStock(controller.method()).stream()
+					.filter(item -> !item.ready()).collect(java.util.stream.Collectors.toList());
+				if (!missing.isEmpty() && missing.stream().allMatch(item -> item.requirement.departureOnly()))
+				{
+					departurePrepared = true;
+				}
+				updateSupplies();
+			}
+			else
+			{
+				controller.advance();
+				primeStep();
+				updateSupplies();
+			}
 			highlightsDirty = true;
 			publish();
 		});
@@ -472,31 +511,43 @@ public class LevelingHelperPlugin extends Plugin
 	{
 		onClient(() ->
 		{
+			forceBank = true;
+			requestedBankOpened = bankOpen();
 			controller.jumpToBank();
 			primeStep();
+			updateSupplies();
 			highlightsDirty = true;
 			publish();
 		});
 	}
 
-	public void detectMembership()
+	/** Detect each login; a sidebar override lasts until the next logout. */
+	private void syncMembership()
 	{
-		onClient(() ->
+		if (manualModeOverride || client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
 		{
-			if (client.getGameState() != GameState.LOGGED_IN)
-			{
-				chat("Log in, then use Match account.");
-				return;
-			}
-			boolean member = client.getVarpValue(VarPlayer.MEMBERSHIP_DAYS) > 0;
-			AccountMode detected = member ? AccountMode.P2P : AccountMode.F2P;
+			return;
+		}
+		AccountMode detected = client.getVarpValue(VarPlayer.MEMBERSHIP_DAYS) > 0
+			|| client.getWorldType().contains(WorldType.MEMBERS) ? AccountMode.P2P : AccountMode.F2P;
+		if (mode != detected)
+		{
 			mode = detected;
 			pinnedId = null;
-			configManager.setConfiguration(LevelingHelperConfig.GROUP, "accountMode", detected);
-			selectionChanged();
-			chat(member ? "Members account. Showing members routes." : "Free-to-play account. Showing free-to-play routes.");
-			publish();
-		});
+			configManager.setConfiguration(LevelingHelperConfig.GROUP, "accountMode", mode);
+		}
+		ensureVisibleSkill();
+	}
+
+	private void ensureVisibleSkill()
+	{
+		if (mode == AccountMode.F2P && skill.isMembers())
+		{
+			skill = Skill.WOODCUTTING;
+			pinnedId = null;
+			goalAnnounced = false;
+			configManager.setConfiguration(LevelingHelperConfig.GROUP, "skillName", skill.getName());
+		}
 	}
 
 	public void openWiki(String title)
@@ -549,10 +600,10 @@ public class LevelingHelperPlugin extends Plugin
 			}
 		}
 		String distance = "";
-		GuideStep step = controller.running() ? controller.current() : null;
-		if (step != null && step.target() != null && loggedIn)
+		WorldPoint destination = controller.running() ? guidanceTarget() : null;
+		if (destination != null && loggedIn)
 		{
-			distance = TrainingMath.direction(playerLocation(), step.target());
+			distance = TrainingMath.direction(playerLocation(), destination);
 		}
 		String status = statusFor(loggedIn, method, level);
 		final GuideSnapshot snapshot = new GuideSnapshot(
@@ -571,8 +622,8 @@ public class LevelingHelperPlugin extends Plugin
 			session.xpPerHour(),
 			distance,
 			upcoming,
-			MethodSelector.alternatives(TrainingCatalog.all(), skill, mode, level, lookup),
-			status, preparation(method, loggedIn), lockedRoutes(lookup, level));
+			MethodSelector.alternatives(TrainingCatalog.all(), skill, mode, style, level, lookup),
+			status, preparation(method, loggedIn), lockedRoutes(lookup, level), supplyStep, itemsReady(method));
 		final LevelingHelperPanel target = panel;
 		SwingUtilities.invokeLater(() ->
 		{
@@ -598,10 +649,12 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			details.add("Quest complete: " + quest.getName());
 		}
-		details.addAll(method.preparation());
+		for (String check : method.manualChecks()) details.add("Player check: " + check);
+		if (!method.noItemsReason().isEmpty()) details.add(method.noItemsReason());
+		if (loggedIn) for (String issue : method.setupIssues(liveLookup())) details.add("Setup needed: " + issue);
 		if (loggedIn)
 		{
-			details.addAll(missingItems(method));
+			details.addAll(supplyLines(method));
 		}
 		else for (ItemRequirement item : method.items()) details.add((item.equipped() ? "Equip: " : "Bring: ") + item.label());
 		return details;
@@ -642,16 +695,20 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			return "No eligible route at level " + level + ". Check the locked routes below for requirements.";
 		}
-		if (mode == AccountMode.P2P && !client.getWorldType().contains(WorldType.MEMBERS))
+		if (!method.modes().contains(AccountMode.F2P) && !client.getWorldType().contains(WorldType.MEMBERS))
 		{
 			return "You are on a free-to-play world. Hop before you follow a members route.";
+		}
+		if (client.getItemContainer(InventoryID.INV) == null)
+		{
+			return "Waiting for inventory data.";
 		}
 		List<String> missing = missingItems(method);
 		if (!missing.isEmpty())
 		{
-			return "Preparation needed: " + String.join("; ", missing) + ". Bank auto-advance waits for these items.";
+			return supplyStep == null ? "Preparation needed: " + String.join("; ", missing) + "." : "Supplies needed before training.";
 		}
-		return "This guides you. It never clicks, banks, or walks for you.";
+		return "";
 	}
 
 	private TrainingMethod chooseMethod()
@@ -674,7 +731,7 @@ public class LevelingHelperPlugin extends Plugin
 				&& pinned.containsLevel(level)
 				&& pinned.requirementsMet(lookup))
 			{
-				return pinned;
+				return pinned.forStyle(style);
 			}
 			pinnedId = null;
 		}
@@ -708,6 +765,61 @@ public class LevelingHelperPlugin extends Plugin
 			{
 				return quest.getState(client) == QuestState.FINISHED;
 			}
+
+			@Override
+			public boolean matches(com.levelinghelper.model.ItemCategory category, int itemId)
+			{
+				return new ItemRules(client, itemManager).matches(category, itemId);
+			}
+
+			@Override
+			public int itemCount(int id)
+			{
+				ItemContainer inv = client.getItemContainer(InventoryID.INV);
+				return (int) Math.min(Integer.MAX_VALUE, (long) (inv == null ? 0 : inv.count(id)) + extraItemCount(id));
+			}
+
+			@Override
+			public int equippedCount(int id)
+			{
+				ItemContainer worn = client.getItemContainer(InventoryID.WORN);
+				return worn == null ? 0 : worn.count(id);
+			}
+
+			@Override
+			public boolean membersWorld() { return client.getWorldType().contains(WorldType.MEMBERS); }
+
+			@Override
+			public boolean equippedMatches(com.levelinghelper.model.ItemCategory category)
+			{
+				ItemContainer worn = client.getItemContainer(InventoryID.WORN);
+				if (worn == null || worn.getItems() == null) return false;
+				for (Item item : worn.getItems()) if (item.getId() > 0 && item.getQuantity() > 0 && matches(category, item.getId())) return true;
+				return false;
+			}
+
+			@Override
+			public int extraItemCount(int itemId) { return new ItemRules(client, itemManager).pouchCount(itemId); }
+
+			@Override
+			public boolean providerUsable(int id)
+			{
+				ItemComposition item = itemManager.getItemComposition(id);
+				return item != null && (!item.isMembers() || membersWorld());
+			}
+
+			@Override
+			public int storedItemCount(int id)
+			{
+				int bit = id == ItemID.SPADE ? net.runelite.api.gameval.VarbitID.FARMING_TOOLS_SPADE
+					: id == ItemID.SEED_DIBBER ? net.runelite.api.gameval.VarbitID.FARMING_TOOLS_DIBBER
+					: id == ItemID.RAKE ? net.runelite.api.gameval.VarbitID.FARMING_TOOLS_RAKE
+					: id == ItemID.ULTRACOMPOST ? net.runelite.api.gameval.VarbitID.FARMING_TOOLS_ULTRACOMPOST : -1;
+				return bit < 0 ? 0 : Math.max(0, client.getVarbitValue(bit));
+			}
+
+			@Override
+			public int varbit(int id) { return client.getVarbitValue(id); }
 
 			@Override
 			public boolean allowWilderness()
@@ -798,7 +910,7 @@ public class LevelingHelperPlugin extends Plugin
 
 	private void ensureGuiding()
 	{
-		if (client.getGameState() != GameState.LOGGED_IN)
+		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
 		{
 			return;
 		}
@@ -809,14 +921,12 @@ public class LevelingHelperPlugin extends Plugin
 				goalAnnounced = true;
 				chat("Goal reached: level " + goal + " " + skill.getName() + ".");
 			}
-			guidePaused = true;
 			stopCurrentGuide();
 			return;
 		}
 		TrainingMethod method = chooseMethod();
 		if (method == null)
 		{
-			guidePaused = true;
 			stopCurrentGuide();
 			return;
 		}
@@ -828,7 +938,11 @@ public class LevelingHelperPlugin extends Plugin
 		targets.clear();
 		hintArrows.clear();
 		removeMapPoint();
+		stockCache = null;
 		controller.start(method);
+		departurePrepared = false;
+		supplyStep = null;
+		forceBank = false;
 		primeStep();
 		highlightsDirty = true;
 		if (!method.id().equals(announcedMethodId))
@@ -841,7 +955,9 @@ public class LevelingHelperPlugin extends Plugin
 	private GuideTick guideTick()
 	{
 		return new GuideTick(playerLocation(), bankOpen(), inventoryFull(),
-			watchedItemGone(controller.current()), targets.visible(), missingItems(controller.method()).isEmpty(),
+			watchedItemGone(controller.current()), targets.visible(), itemsReady(controller.method())
+				&& (controller.current() == null || controller.current().kind() != StepKind.BANK
+					|| emptySlots() >= controller.method().preparationFreeSlots()),
 			client.getItemContainer(InventoryID.INV) != null);
 	}
 
@@ -853,53 +969,352 @@ public class LevelingHelperPlugin extends Plugin
 		}
 	}
 
+	private List<SupplyTracker.Stock> stock(TrainingMethod method)
+	{
+		if (stockCache == null || stockCacheMethod != method)
+		{
+			stockCache = supplies.check(method, client.getItemContainer(InventoryID.INV), client.getItemContainer(InventoryID.WORN),
+				liveLookup(), client.getWorldType().contains(WorldType.MEMBERS));
+			stockCacheMethod = method;
+		}
+		return stockCache;
+	}
+
+	private List<SupplyTracker.Stock> requiredStock(TrainingMethod method)
+	{
+		return stock(method).stream().filter(item -> !item.requirement.optional()
+			&& (!item.requirement.departureOnly() || !departurePrepared))
+			.collect(java.util.stream.Collectors.toList());
+	}
+
+	private boolean itemsReady(TrainingMethod method)
+	{
+		return client.getGameState() == GameState.LOGGED_IN && client.getItemContainer(InventoryID.INV) != null
+			&& requiredStock(method).stream().allMatch(SupplyTracker.Stock::ready)
+			&& (method == null || method.setupIssues(liveLookup()).isEmpty());
+	}
+
 	private List<String> missingItems(TrainingMethod method)
 	{
 		List<String> missing = new ArrayList<>();
-		if (method == null)
+		for (SupplyTracker.Stock item : requiredStock(method))
 		{
-			return missing;
-		}
-		for (ItemRequirement requirement : method.items())
-		{
-			ItemContainer inventory = requirement.countsInventory() ? client.getItemContainer(InventoryID.INV) : null;
-			ItemContainer equipment = requirement.countsEquipment() ? client.getItemContainer(InventoryID.WORN) : null;
-			if (!requirement.met(id -> (inventory == null ? 0 : inventory.count(id)) + (equipment == null ? 0 : equipment.count(id))))
+			if (!item.ready())
 			{
-				missing.add((requirement.equipped() ? "Equip: " : "Bring: ") + requirement.label());
+				missing.add((item.requirement.equipped() ? "Equip: " : "Bring: ") + item.requirement.label());
 			}
 		}
 		return missing;
 	}
 
-	private boolean trainingEquipmentReady()
+	private List<String> supplyLines(TrainingMethod method)
 	{
-		if (!controller.running() || controller.current().kind() != StepKind.TRAIN)
+		List<String> lines = new ArrayList<>();
+		if (client.getItemContainer(InventoryID.INV) == null)
 		{
-			return true;
+			return java.util.Collections.singletonList("Waiting for inventory data before checking supplies.");
 		}
-		for (ItemRequirement requirement : controller.method().items())
+		boolean ironman = client.getAccountType() != null && client.getAccountType().isIronman();
+		boolean ultimate = client.getAccountType() == net.runelite.api.vars.AccountType.ULTIMATE_IRONMAN;
+		for (SupplyTracker.Stock item : stock(method))
 		{
-			if (!requirement.equipped())
+			String name = item.requirement.label();
+			if (item.requirement.optional())
 			{
+				lines.add("Optional: " + name + (item.ready() ? " (available)." : ". " + item.requirement.source()));
 				continue;
 			}
-			ItemContainer equipment = client.getItemContainer(InventoryID.WORN);
-			if (!requirement.met(id -> equipment == null ? 0 : equipment.count(id)))
+			if (item.requirement.departureOnly() && departurePrepared && !item.ready())
 			{
-				return false;
+				lines.add("Before another trip: " + name + ". " + item.requirement.source());
+				continue;
+			}
+			if (item.ready())
+			{
+				ItemComposition composition = item.presentId > 0 ? itemManager.getItemComposition(item.presentId) : null;
+				String carried = composition == null || composition.getName() == null ? name : composition.getName();
+				String description = item.supplied ? name + (item.presentId > 0 ? " supplied by " + carried + ". Check remaining charges where applicable." : " supplied by the active effect.")
+					: item.requirement.countsEquipment()
+					? carried + (item.requirement.equipped() ? " (equipped)." : " (carried/equipped).")
+					: name + " (" + item.held + " carried).";
+				lines.add("Ready: " + description);
+			}
+			else if (item.needsEquipping())
+			{
+				lines.add("Equip: " + itemName(item.carriedProvider, name) + " for " + name + " - already in your inventory.");
+			}
+			else if (item.canRetrieve())
+			{
+				lines.add("Retrieve: " + name + " from a tool leprechaun (stored supplies detected).");
+			}
+			else if (item.bankProvider > 0)
+			{
+				lines.add("Withdraw and equip: " + itemName(item.bankProvider, name) + " to supply " + name + ".");
+			}
+			else if (ultimate)
+			{
+				lines.add("Obtain: " + name + ". " + item.requirement.source());
+			}
+			else if (!item.bankKnown)
+			{
+				lines.add("Missing: " + name + ". Open a bank to check stock (need " + item.requirement.quantity() + ", have " + item.held + ").");
+			}
+			else if (item.canWithdraw())
+			{
+				lines.add("Withdraw: " + name + " (take " + Math.min(item.bank, item.requirement.quantity() - item.held)
+					+ "; " + item.bank + " in the last bank check)." + (item.requirement.equipped() ? " Then equip it." : "")
+					+ (item.absentFromBank() ? " Obtain " + (item.requirement.quantity() - item.held - item.bank) + " more afterwards." : ""));
+			}
+			else
+			{
+				lines.add("Obtain: " + name + " (need " + (item.requirement.quantity() - item.held) + ", bank " + item.bank + "). "
+					+ (ironman || !canBuy(item) ? item.requirement.source() : "Buy a suitable item at the Grand Exchange. Other source: " + item.requirement.source()));
 			}
 		}
-		return true;
+		if (method != null && method.xpEach() > 0 && client.getRealSkillLevel(method.skill()) < 99)
+		{
+			int nextLevel = client.getRealSkillLevel(method.skill()) + 1;
+			int actions = TrainingMath.actions(TrainingMath.xpBetween(client.getSkillExperience(method.skill()), nextLevel), method.xpEach());
+			for (SupplyTracker.Stock item : stock(method))
+			{
+				if (item.requirement.unitsPerAction() <= 0 || item.supplied || item.requirement.optional())
+				{
+					continue;
+				}
+				long needed = (long) Math.ceil(actions * item.requirement.unitsPerAction());
+				lines.add("To level " + nextLevel + ": about " + String.format("%,d", needed) + " " + item.requirement.label()
+					+ " (" + item.held + " carried; " + (item.bankKnown ? item.bank + " banked at last check" : "bank unknown") + ").");
+			}
+		}
+		if (method != null && !method.items().isEmpty())
+		{
+			lines.add("Ready checks need enough to start. Materials must be unnoted.");
+		}
+		return lines;
+	}
+
+	private void observeBank()
+	{
+		Player player = client.getLocalPlayer();
+		supplies.bind(player == null ? null : player.getName());
+		if (bankOpen())
+		{
+			supplies.observeBank(client.getItemContainer(InventoryID.BANK));
+		}
+	}
+
+	@Subscribe
+	public void onItemContainerChanged(ItemContainerChanged event)
+	{
+		stockCache = null;
+		if (!enabled || client.getGameState() != GameState.LOGGED_IN)
+		{
+			return;
+		}
+		Player player = client.getLocalPlayer();
+		supplies.bind(player == null ? null : player.getName());
+		if (event.getContainerId() == InventoryID.BANK && (bankOpen() || supplies.bankKnown()))
+		{
+			supplies.observeBank(event.getItemContainer());
+		}
+	}
+
+	/** Keep the selected method, restarting its bank/travel sequence when supplies run out. */
+	private void updateSupplies()
+	{
+		GuideStep previous = supplyStep;
+		supplyStep = null;
+		if (!controller.running())
+		{
+			return;
+		}
+		TrainingMethod method = controller.method();
+		List<SupplyTracker.Stock> missing = new ArrayList<>();
+		for (SupplyTracker.Stock item : requiredStock(method))
+		{
+			if (!item.ready())
+			{
+				missing.add(item);
+			}
+		}
+		if (client.getItemContainer(InventoryID.INV) == null)
+		{
+			supplyStep = GuideSteps.note("Waiting for inventory data before checking supplies.");
+		}
+		else if (!method.modes().contains(AccountMode.F2P) && !client.getWorldType().contains(WorldType.MEMBERS))
+		{
+			supplyStep = GuideSteps.note("Hop to a members world to follow this route.");
+		}
+		else if (forceBank && method.steps().stream().noneMatch(step -> step.kind() == StepKind.BANK))
+		{
+			supplyStep = GuideSteps.bank("Visit a bank. Close it when ready to resume the selected route.", nearestBank());
+		}
+		else if (!method.setupIssues(liveLookup()).isEmpty())
+		{
+			supplyStep = GuideSteps.note(String.join(" ", method.setupIssues(liveLookup())));
+		}
+		else if (missing.isEmpty())
+		{
+			departurePrepared = true;
+			if (config.autoAdvance() && !forceBank && controller.current().kind() == StepKind.BANK
+				&& method.preparationFreeSlots() >= 0 && !bankOpen()
+				&& emptySlots() >= method.preparationFreeSlots())
+			{
+				controller.advance();
+				primeStep();
+				highlightsDirty = true;
+			}
+		}
+		else if (missing.stream().anyMatch(SupplyTracker.Stock::canRetrieve) && !forceBank)
+		{
+			String names = missing.stream().filter(SupplyTracker.Stock::canRetrieve).map(item -> item.requirement.label())
+				.collect(java.util.stream.Collectors.joining(", "));
+			supplyStep = GuideSteps.find("Retrieve " + names + " from a tool leprechaun near your patch, then continue.", "Tool Leprechaun");
+		}
+		else if (method.localRestock() != null && !forceBank && controller.current().kind() != StepKind.BANK
+			&& missing.stream().allMatch(item -> item.requirement.unitsPerAction() > 0))
+		{
+			supplyStep = GuideSteps.note(method.localRestock());
+		}
+		else if (!missing.isEmpty())
+		{
+			if (controller.current().kind() != StepKind.BANK && controller.current().kind() != StepKind.DROP
+				&& method.steps().stream().anyMatch(step -> step.kind() == StepKind.BANK))
+			{
+				controller.jumpToBank();
+				primeStep();
+			}
+			String names = missing.stream().map(item -> itemName(item.carriedProvider > 0 ? item.carriedProvider : item.bankProvider, item.requirement.label()))
+				.collect(java.util.stream.Collectors.joining(", "));
+			String firstTrip = missing.stream().allMatch(item -> item.requirement.departureOnly())
+				? " If already paid, deployed or prepared for this trip, press Next to skip this first-trip check." : "";
+			boolean ironman = client.getAccountType() != null && client.getAccountType().isIronman();
+			boolean obtain = client.getAccountType() == net.runelite.api.vars.AccountType.ULTIMATE_IRONMAN
+				|| missing.stream().anyMatch(SupplyTracker.Stock::absentFromBank);
+			if (missing.stream().allMatch(SupplyTracker.Stock::needsEquipping))
+			{
+				supplyStep = GuideSteps.note("Equip your carried " + names + ", then continue training.");
+			}
+			else if (obtain && missing.stream().noneMatch(SupplyTracker.Stock::canWithdraw) && !forceBank)
+			{
+				boolean exchange = !ironman && missing.stream().allMatch(this::canBuy);
+				String instruction = "Obtain missing " + names + (ironman ? ". Follow the item sources below; Ironman accounts cannot buy these on the Grand Exchange."
+					: exchange ? " at the Grand Exchange, or gather/make them. Follow the item sources below."
+					: ". Follow the item sources below; quest and activity supplies may need to be recovered at their source.");
+				supplyStep = new GuideStep(instruction + firstTrip, StepKind.NOTE, exchange ? Spots.GE : null, 0, 18,
+					AdvanceWhen.MANUAL, HighlightMode.NEAR_TARGET, GuideStep.namesOf("Grand Exchange Clerk"), null);
+			}
+			else
+			{
+				GuideStep bank = method.steps().stream().filter(step -> step.kind() == StepKind.BANK).findFirst().orElse(null);
+				String instruction = (supplies.bankKnown() ? "Withdraw " : "Open a bank to check for ") + names + ". "
+					+ "Close the bank once ready.";
+				WorldPoint destination = bank == null || bank.target() == null ? nearestBank() : bank.target();
+				supplyStep = GuideSteps.bank(instruction + firstTrip, destination);
+			}
+		}
+		if (controller.current().kind() != StepKind.BANK && supplyStep == null)
+		{
+			forceBank = false;
+		}
+		if (previous != null || supplyStep != null)
+		{
+			// Refresh only when the detour changes, rather than rescanning scene objects every tick.
+			if (previous == null || supplyStep == null || !previous.instruction().equals(supplyStep.instruction()) || !java.util.Objects.equals(previous.target(), supplyStep.target()))
+			{
+				targets.clear();
+				highlightsDirty = true;
+			}
+			else
+			{
+				supplyStep = previous;
+			}
+		}
+	}
+
+	private WorldPoint nearestBank()
+	{
+		WorldPoint player = playerLocation();
+		if (player == null)
+		{
+			return Spots.GE;
+		}
+		List<WorldPoint> banks = new ArrayList<>(java.util.Arrays.asList(Spots.GE, Spots.LUMBRIDGE_BANK, Spots.DRAYNOR_BANK,
+			Spots.VARROCK_EAST_BANK, Spots.VARROCK_WEST_BANK, Spots.AL_KHARID_BANK,
+			Spots.EDGEVILLE_BANK, Spots.FALADOR_EAST_BANK, Spots.FALADOR_WEST_BANK));
+		if (client.getWorldType().contains(WorldType.MEMBERS)) banks.addAll(java.util.Arrays.asList(
+			Spots.SEERS_BANK, Spots.CATHERBY_BANK, Spots.ARDOUGNE_NORTH_BANK, Spots.ARDOUGNE_SOUTH_BANK,
+			Spots.CASTLE_WARS, Spots.WINTERTODT_BANK));
+		return banks.stream()
+			.min(java.util.Comparator.comparingInt(point -> point.distanceTo2D(player))).orElse(Spots.GE);
+	}
+
+	private int emptySlots()
+	{
+		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
+		if (inventory == null)
+		{
+			return 0;
+		}
+		int occupied = 0;
+		for (Item item : inventory.getItems())
+		{
+			if (item.getId() > 0 && item.getQuantity() > 0)
+			{
+				occupied++;
+			}
+		}
+		return Math.max(0, INVENTORY_SIZE - occupied);
+	}
+
+	GuideStep currentStep()
+	{
+		return supplyStep == null ? controller.current() : supplyStep;
+	}
+
+	private boolean trainingEquipmentReady()
+	{
+		return !controller.running() || currentStep().kind() != StepKind.TRAIN || itemsReady(controller.method());
+	}
+
+	private boolean canBuy(SupplyTracker.Stock item)
+	{
+		for (int id : item.requirement.itemIds())
+		{
+			if (id == Integer.MAX_VALUE) continue;
+			ItemComposition definition = itemManager.getItemComposition(id);
+			if (definition != null && definition.isGeTradeable()) return true;
+		}
+		return false;
+	}
+
+	private String itemName(int id, String fallback)
+	{
+		ItemComposition item = id > 0 ? itemManager.getItemComposition(id) : null;
+		return item == null || item.getName() == null ? fallback : item.getName();
 	}
 
 	private void updateHintArrow()
 	{
-		GuideStep step = controller.current();
 		NPC npc = targets.closestNpc();
-		TileObject object = targets.closestObject();
-		WorldPoint point = object != null ? object.getWorldLocation() : step == null ? null : step.target();
+		WorldPoint point = controller.running() ? guidanceTarget() : null;
 		hintArrows.update(enabled && config.showArrow() && config.showHintArrow() && controller.running() && trainingEquipmentReady(), npc, point);
+	}
+
+	WorldPoint guidanceTarget()
+	{
+		if (!controller.running() || !trainingEquipmentReady())
+		{
+			return null;
+		}
+		NPC npc = targets.closestNpc();
+		if (npc != null)
+		{
+			return npc.getWorldLocation();
+		}
+		TileObject object = targets.closestObject();
+		return object != null ? object.getWorldLocation() : currentStep().target() != null ? currentStep().target()
+			: currentStep().kind() == StepKind.BANK ? nearestBank() : null;
 	}
 
 	boolean active()
@@ -914,20 +1329,20 @@ public class LevelingHelperPlugin extends Plugin
 			removeMapPoint();
 			return;
 		}
-		GuideStep step = controller.current();
-		if (step == null || step.target() == null)
+		WorldPoint destination = guidanceTarget();
+		if (destination == null)
 		{
 			removeMapPoint();
 			return;
 		}
-		if (step.target().equals(mapPointTarget) && controller.method().id().equals(mapPointMethod))
+		if (destination.equals(mapPointTarget) && controller.method().id().equals(mapPointMethod))
 		{
 			return;
 		}
 		removeMapPoint();
-		mapPointTarget = step.target();
+		mapPointTarget = destination;
 		mapPointMethod = controller.method().id();
-		mapPoint = new WorldMapPoint(step.target(), ICON);
+		mapPoint = new WorldMapPoint(destination, ICON);
 		mapPoint.setTooltip(controller.method().name());
 		mapPoint.setJumpOnClick(true);
 		mapPoint.setName(controller.method().name());

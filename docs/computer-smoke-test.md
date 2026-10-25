@@ -1,5 +1,7 @@
 # Computer smoke test — 24 October 2026
 
+Historical test of the release UI. The subsequent [automatic-guidance UI changes](ui-improvements.md) remove the start/stop and Match account controls; the observations below are not acceptance evidence for that newer behavior.
+
 Tested the local RuneLite 1.13.4 developer client through Computer on macOS, logged in on a free-to-play world. The test character had 34 Mining and an empty inventory, standing in Al Kharid bank.
 
 The developer JAR was packaged under ignored `build/macos/LevelingHelperDev.app` with JDK 17 `jpackage` so Computer could attach to a macOS application. This is a local test launcher, not a Plugin Hub release.

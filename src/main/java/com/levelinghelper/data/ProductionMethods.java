@@ -1,6 +1,7 @@
 package com.levelinghelper.data;
 
 import com.levelinghelper.guide.GuideSteps;
+import com.levelinghelper.model.ItemRequirement;
 import com.levelinghelper.model.AccountMode;
 import com.levelinghelper.model.AdvanceWhen;
 import com.levelinghelper.model.RouteRisk;
@@ -8,6 +9,7 @@ import com.levelinghelper.model.TrainingMethod;
 import com.levelinghelper.model.TrainingStyle;
 import java.util.List;
 import net.runelite.api.Quest;
+import net.runelite.api.ItemID;
 import net.runelite.api.Skill;
 import net.runelite.api.coords.WorldPoint;
 
@@ -61,6 +63,9 @@ final class ProductionMethods
 	private static void wines(List<TrainingMethod> out)
 	{
 		TrainingMethod.builder(out, Skill.COOKING, "Jugs of wine")
+			.item(Materials.supply("Grapes", 1))
+			.item(Materials.supply("Jug of water", 1))
+			.itemPreparation(0)
 			.levels(35, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.FAST)
@@ -85,6 +90,8 @@ final class ProductionMethods
 	private static void cookAt(List<TrainingMethod> out, String name, int min, int max, AccountMode mode, TrainingStyle[] styles, int priority, double xpEach, int xpHr, String raw, String summary, WorldPoint bank, WorldPoint range)
 	{
 		TrainingMethod.builder(out, Skill.COOKING, name)
+			.item(Materials.supply(raw, 1))
+			.itemPreparation(0)
 			.levels(min, max)
 			.modes(mode)
 			.styles(styles)
@@ -130,6 +137,9 @@ final class ProductionMethods
 	private static void burn(List<TrainingMethod> out, String name, int min, int max, AccountMode mode, TrainingStyle[] styles, int priority, double xpEach, int xpHr, String item)
 	{
 		TrainingMethod.builder(out, Skill.FIREMAKING, name)
+			.supplies("Tinderbox", 1, ItemID.TINDERBOX)
+			.item(Materials.supply(item, 1))
+			.itemPreparation(0)
 			.levels(min, max)
 			.modes(mode)
 			.styles(styles)
@@ -145,9 +155,9 @@ final class ProductionMethods
 
 	private static void crafting(List<TrainingMethod> out)
 	{
-		craft(out, "Leather", 1, 99, AccountMode.F2P, ALL, 1, 25, 20000, "Leather",
+		craft(out, "Leather", 1, 99, AccountMode.F2P, ALL, 1, 0, 20000, "Leather",
 			"Free-to-play Crafting is leather. Buy leather, a needle, and thread. Make the highest leather item you can: gloves at 1, then boots, cowl, vambraces, bodies at 14, chaps at 18, and hardleather bodies at 28. Do it at the Grand Exchange.");
-		craft(out, "Leather", 1, 19, AccountMode.P2P, ALL, 1, 25, 25000, "Leather",
+		craft(out, "Leather", 1, 19, AccountMode.P2P, ALL, 1, 0, 25000, "Leather",
 			"Leather until you can cut gems. Needle and thread stay in the inventory. Members move on to gems quickly.");
 		craft(out, "Sapphires", 20, 26, AccountMode.P2P, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.FAST, TrainingStyle.AFK}, 2, 50, 120000, "Uncut sapphire",
 			"Cut uncut sapphires at the Grand Exchange. A chisel stays in the inventory.");
@@ -171,7 +181,8 @@ final class ProductionMethods
 
 	private static void craft(List<TrainingMethod> out, String name, int min, int max, AccountMode mode, TrainingStyle[] styles, int priority, double xpEach, int xpHr, String item, String summary)
 	{
-		TrainingMethod.builder(out, Skill.CRAFTING, name)
+		TrainingMethod.Builder builder = TrainingMethod.builder(out, Skill.CRAFTING, name)
+			.itemPreparation(0)
 			.levels(min, max)
 			.modes(mode)
 			.styles(styles)
@@ -183,20 +194,23 @@ final class ProductionMethods
 			.opt("Battlestaves at 66, if you have orbs, are another standard method and sometimes profit.")
 			.loop(0)
 			.step(GuideSteps.bank("Withdraw the materials. Keep your needle, thread, or chisel in the inventory.", Spots.GE))
-			.step(GuideSteps.untilEmpty("Make the items, then bank them.", Spots.GE, item))
-			.save();
+			.step(item.equals("Leather")
+				? GuideSteps.roam("Make leather armour appropriate to your level, using soft leather or hard leather from level 28. Restock when the supplies run out.", AdvanceWhen.MANUAL)
+				: GuideSteps.untilEmpty("Make the items, then bank them.", Spots.GE, item));
+		craftingSupplies(builder, item);
+		builder.save();
 	}
 
 	private static void smithing(List<TrainingMethod> out)
 	{
-		smith(out, "Bronze", 1, 17, 6.2, 20000, "Bronze bar", "Smith bronze items at the Varrock west anvil. Buy bronze bars. Doric's Quest gives 1,300 Smithing XP and is free-to-play.");
+		smith(out, "Bronze", 1, 17, 12.5, 20000, "Bronze bar", "Smith bronze items at the Varrock west anvil. Buy bronze bars. Doric's Quest gives 1,300 Smithing XP and is free-to-play.");
 		smith(out, "Bronze platebodies", 18, 32, 62.5, 50000, "Bronze bar", "Smith bronze platebodies. They are 62.5 XP each.");
 		smith(out, "Iron platebodies", 33, 47, 125, 90000, "Iron bar", "Smith iron platebodies. Buying the bars avoids the 50% iron smelting failure, which you cannot remove in free-to-play.");
 		smith(out, "Steel platebodies", 48, 67, 187.5, 140000, "Steel bar", "Smith steel platebodies.");
 		smith(out, "Mithril platebodies", 68, 87, 250, 180000, "Mithril bar", "Smith mithril platebodies.");
 		smith(out, "Adamant platebodies", 88, 99, 312.5, 220000, "Adamantite bar", "Smith adamant platebodies to 99. Rune platebodies are level 99, so they are not the training method.");
 
-		smithMembers(out, "Bronze", 1, 14, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.FAST, TrainingStyle.AFK, TrainingStyle.PROFIT}, 1, 6.2, 30000, "Bronze bar",
+		smithMembers(out, "Bronze", 1, 14, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.FAST, TrainingStyle.AFK, TrainingStyle.PROFIT}, 1, 12.5, 30000, "Bronze bar",
 			"Smith bronze at the Varrock west anvil until Giants' Foundry at 15. Knight's Sword gives about 12,725 Smithing XP and skips this on a members account.");
 		TrainingMethod.builder(out, Skill.SMITHING, "Giants' Foundry")
 			.quest(Quest.SLEEPING_GIANTS)
@@ -205,12 +219,12 @@ final class ProductionMethods
 			.styles(TrainingStyle.BALANCED, TrainingStyle.PROFIT)
 			.priority(4)
 			.xp(0, 180000)
-			.summary("Giants' Foundry, east of Al Kharid, is the balanced Smithing method. You alloy two metals, pour the mould, and hammer the sword. It uses fewer bars than smithing platebodies and pays you in foundry rewards. Bring a hammer. The preform storage lets you bank less often once you unlock it.")
+			.summary("Giants' Foundry, east of Al Kharid, is the balanced Smithing method. You alloy two metals, pour the mould, and hammer the sword. It uses fewer bars than smithing platebodies and pays you in foundry rewards. Use a bucket of water or equipped ice gloves to handle the preform. The preform storage lets you bank less often once you unlock it.")
 			.wiki("Giants' Foundry")
 			.opt("Use the best metal pair the founder recommends for your level. Higher metals are more XP.")
 			.opt("Knight's Sword is about 12,725 Smithing XP. Do it early.")
 			.loop(1)
-			.step(GuideSteps.bank("Withdraw a hammer and the two types of bar you plan to alloy. The foundry tells you the useful pairs.", Spots.GE))
+			.step(GuideSteps.bank("Prepare 28 bar-equivalents of your chosen bars or eligible metal equipment. A bucket of water or equipped ice gloves lets you handle the preform.", Spots.GE))
 			.step(GuideSteps.travel("Go to Giants' Foundry, east of Al Kharid.", Spots.GIANTS_FOUNDRY, 18, "Kovac"))
 			.step(GuideSteps.train("Commission a sword, pour the crucible, and work the preform. Hand it in, then start another. Press Bank when you need bars.", Spots.GIANTS_FOUNDRY, AdvanceWhen.MANUAL, "Crucible", "Mould jig"))
 			.save();
@@ -262,6 +276,9 @@ final class ProductionMethods
 	private static void smithAtAnvil(List<TrainingMethod> out, String name, int min, int max, TrainingStyle[] styles, int priority, double xpEach, int xpHr, String bar, String summary, AccountMode... modes)
 	{
 		TrainingMethod.builder(out, Skill.SMITHING, name)
+			.tool("Hammer", ItemID.HAMMER, ItemID.IMCANDO_HAMMER, ItemID.IMCANDO_HAMMER_OFFHAND)
+			.item(Materials.supply(bar, name.contains("platebodies") ? 5 : 1))
+			.itemPreparation(0)
 			.levels(min, max)
 			.modes(modes)
 			.styles(styles)
@@ -357,21 +374,22 @@ final class ProductionMethods
 			"Cut yew longbows (u).");
 		fletch(out, "Magic longbows", 85, 99, new TrainingStyle[]{TrainingStyle.BALANCED, TrainingStyle.AFK, TrainingStyle.PROFIT}, 3, 91.5, 260000, "Magic logs",
 			"Cut magic longbows (u). This is the quiet fletching method to 99.");
-		fletch(out, "Mithril darts", 52, 66, new TrainingStyle[]{TrainingStyle.FAST}, 4, 0, 400000, "Mithril dart tip",
+		fletch(out, "Mithril darts", 52, 66, new TrainingStyle[]{TrainingStyle.FAST}, 4, 11.2, 400000, "Mithril dart tip",
 			"Add feathers to mithril dart tips. Darts are the fast Fletching method. Buy the tips and the feathers.");
-		fletch(out, "Adamant darts", 67, 80, new TrainingStyle[]{TrainingStyle.FAST}, 5, 0, 550000, "Adamant dart tip",
+		fletch(out, "Adamant darts", 67, 80, new TrainingStyle[]{TrainingStyle.FAST}, 5, 15, 550000, "Adamant dart tip",
 			"Add feathers to adamant dart tips.");
-		fletch(out, "Rune darts", 81, 99, new TrainingStyle[]{TrainingStyle.FAST}, 6, 0, 750000, "Rune dart tip",
+		fletch(out, "Rune darts", 81, 99, new TrainingStyle[]{TrainingStyle.FAST}, 6, 18.8, 750000, "Rune dart tip",
 			"Add feathers to rune dart tips. Dragon darts at 95 are faster and more expensive.");
-		fletch(out, "Iron darts", 22, 51, new TrainingStyle[]{TrainingStyle.FAST}, 3, 0, 250000, "Iron dart tip",
+		fletch(out, "Iron darts", 22, 51, new TrainingStyle[]{TrainingStyle.FAST}, 3, 3.8, 250000, "Iron dart tip",
 			"Add feathers to iron dart tips until mithril darts at 52. Steel darts at 37 are a small upgrade if the tips are cheap.");
-		fletch(out, "Bronze darts", 10, 21, new TrainingStyle[]{TrainingStyle.FAST}, 2, 0, 150000, "Bronze dart tip",
+		fletch(out, "Bronze darts", 10, 21, new TrainingStyle[]{TrainingStyle.FAST}, 2, 1.8, 150000, "Bronze dart tip",
 			"Add feathers to bronze dart tips.");
 	}
 
 	private static void fletch(List<TrainingMethod> out, String name, int min, int max, TrainingStyle[] styles, int priority, double xpEach, int xpHr, String item, String summary)
 	{
-		TrainingMethod.builder(out, Skill.FLETCHING, name)
+		TrainingMethod.Builder builder = TrainingMethod.builder(out, Skill.FLETCHING, name)
+			.itemPreparation(0)
 			.levels(min, max)
 			.modes(AccountMode.P2P)
 			.styles(styles)
@@ -384,9 +402,58 @@ final class ProductionMethods
 			.wiki(name)
 			.opt("Stringing bows is a second action of the same XP and is often where the profit is. Check the price of the unstrung bow against the strung bow and the bow string.")
 			.loop(0)
-			.step(GuideSteps.bank("Withdraw the materials. Keep a knife in the inventory if you are cutting logs.", Spots.GE))
-			.step(GuideSteps.untilEmpty("Make the items until the materials in this step are gone.", Spots.GE, item))
-			.save();
+			.step(GuideSteps.bank(item.endsWith("dart tip") ? "Withdraw " + item.toLowerCase() + "s and feathers." : "Prepare a knife and unnoted " + item.toLowerCase() + ".", Spots.GE))
+			.step(GuideSteps.untilEmpty(item.endsWith("dart tip") ? "Add feathers to the " + item.toLowerCase() + "s." : "Use your knife on the " + item.toLowerCase() + " to make " + name.toLowerCase() + ".", Spots.GE, item));
+		fletchingSupplies(builder, item);
+		builder.save();
+	}
+
+	private static void fletchingSupplies(TrainingMethod.Builder builder, String item)
+	{
+		builder.item(Materials.supply(item, 1));
+		if (item.endsWith("dart tip"))
+		{
+			builder.item(Materials.supply("Feathers", 1));
+		}
+		else
+		{
+			builder.toolFrom("Knife", "Buy a knife from a general store, or collect a knife spawn.", ItemID.KNIFE);
+		}
+	}
+
+	private static void craftingSupplies(TrainingMethod.Builder builder, String item)
+	{
+		boolean leather = !item.startsWith("Uncut ");
+		builder.item(item.equals("Leather")
+			? ItemRequirement.matching("Usable leather", ItemRequirement.Container.INVENTORY, 1,
+				com.levelinghelper.model.ItemCategory.LEATHER, "Tan cowhides into soft leather, or hard leather for hardleather bodies from Crafting 28.").perAction(1)
+			: Materials.supply(item, item.contains("dragon leather") ? 3 : 1));
+		if (leather)
+		{
+			builder.toolFrom("Needle", "Buy a needle from a crafting shop, such as Dommik's in Al Kharid.", ItemID.NEEDLE).item(Materials.supply("Thread", 1));
+		}
+		else
+		{
+			builder.toolFrom("Chisel", "Buy a chisel from a general or crafting shop.", ItemID.CHISEL);
+		}
+	}
+
+	private static void potionSupplies(TrainingMethod.Builder builder, String name)
+	{
+		switch (name)
+		{
+			case "Attack potions": case "Super attack": builder.item(Materials.supply("Eye of newt", 1)); break;
+			case "Strength potions": case "Super strength": builder.item(Materials.supply("Limpwurt root", 1)); break;
+			case "Energy potions": builder.item(Materials.supply("Chocolate dust", 1)); break;
+			case "Prayer potions": builder.item(Materials.supply("Snape grass", 1)); break;
+			case "Super restores": builder.item(Materials.supply("Red spiders' eggs", 1)); break;
+			case "Ranging potions": builder.item(Materials.supply("Wine of zamorak", 1)); break;
+			case "Saradomin brews": builder.item(Materials.supply("Crushed nest", 1)); break;
+			case "Super combat":
+				builder.item(Materials.supply("Super attack (4)", 1)).item(Materials.supply("Super strength (4)", 1)).item(Materials.supply("Super defence (4)", 1));
+				break;
+			default: throw new IllegalArgumentException("Unknown potion " + name);
+		}
 	}
 
 	private static void herblore(List<TrainingMethod> out)
@@ -413,15 +480,16 @@ final class ProductionMethods
 			.wiki("Grimy guam leaf")
 			.opt("Making potions is the XP. Cleaning herbs is the money.")
 			.loop(0)
-			.step(GuideSteps.note("Complete Druidic Ritual if Herblore is still locked. Press Next after that."))
 			.step(GuideSteps.bank("Withdraw grimy herbs.", Spots.GE))
-			.step(GuideSteps.note("Clean the herbs and bank them. Press Next when the inventory is done."))
+			.step(GuideSteps.roam("Clean the carried herbs. Replenish them at the bank when the inventory is done.", AdvanceWhen.MANUAL))
 			.save();
 	}
 
 	private static void potion(List<TrainingMethod> out, String name, int min, int max, double xpEach, String unfinished, String summary)
 	{
-		TrainingMethod.builder(out, Skill.HERBLORE, name)
+		TrainingMethod.Builder builder = TrainingMethod.builder(out, Skill.HERBLORE, name)
+			.item(Materials.supply(unfinished, 1))
+			.itemPreparation(0)
 			.quest(Quest.DRUIDIC_RITUAL)
 			.levels(min, max)
 			.modes(AccountMode.P2P)
@@ -432,13 +500,13 @@ final class ProductionMethods
 			.wiki(name)
 			.opt("Mastering Mixology, on the coast south of Aldarin, is the herblore minigame. It spends pastes instead of a single potion and is worth learning once you want a change from combining.")
 			.opt("Make the potion with the best XP for the money you can spend. The one named here is the straightforward choice, not always the cheapest.")
-			.loop(1)
-			.step(GuideSteps.note("If you have not completed Druidic Ritual, do that first. Press Next when Herblore is unlocked."))
+			.loop(0)
 			.step(GuideSteps.bank(name.equals("Super combat")
 				? "Withdraw 7 torstol potions (unf), 7 super attack (4), 7 super strength (4), and 7 super defence (4)."
 				: "Withdraw 14 " + unfinished.toLowerCase() + " and 14 of the secondary ingredient.", Spots.GE))
-			.step(GuideSteps.untilEmpty("Combine the potions.", Spots.GE, unfinished))
-			.save();
+			.step(GuideSteps.untilEmpty("Combine the potions.", Spots.GE, unfinished));
+		potionSupplies(builder, name);
+		builder.save();
 	}
 
 	private static void construction(List<TrainingMethod> out)

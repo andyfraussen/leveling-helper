@@ -27,6 +27,7 @@ public class PanelWrappingTest
 			LevelingHelperPanel panel = new LevelingHelperPanel(mock(LevelingHelperPlugin.class));
 			JLabel label = introduction(panel);
 			assertNotNull(label);
+			assertNotNull("Initial text must render as HTML before any font change", label.getClientProperty(BasicHTML.propertyKey));
 			for (int fontSize : new int[]{13, 18, 24})
 			{
 				label.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, fontSize));

@@ -6,6 +6,7 @@ import com.levelinghelper.model.AccountMode;
 import com.levelinghelper.model.GuideStep;
 import com.levelinghelper.model.TrainingMethod;
 import com.levelinghelper.model.TrainingStyle;
+import com.levelinghelper.model.StepKind;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -40,17 +41,26 @@ class LevelingHelperPanel extends PluginPanel
 	private final JComboBox<AccountMode> mode = new JComboBox<AccountMode>(AccountMode.values());
 	private final JComboBox<TrainingStyle> style = new JComboBox<TrainingStyle>(TrainingStyle.values());
 	private final JSpinner goal = new JSpinner(new SpinnerNumberModel(99, 2, 99, 1));
-	private final JPanel skills = new JPanel(new GridLayout(0, 2, 4, 4));
+	private final JPanel skills = new JPanel(new GridLayout(0, 2, 4, 4))
+	{
+		@Override
+		public Dimension getMaximumSize()
+		{
+			return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+		}
+	};
 	private final JPanel detail = new JPanel();
 	private final Map<Skill, JToggleButton> skillButtons = new HashMap<Skill, JToggleButton>();
 	private final ButtonGroup skillGroup = new ButtonGroup();
 	private boolean suppress;
+	private AccountMode displayedMode;
 	private String signature = "";
 	private WrapLabel statsLabel;
 
 	LevelingHelperPanel(LevelingHelperPlugin plugin)
 	{
 		super();
+		setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
 		this.plugin = plugin;
 		if (getScrollPane() != null)
 		{
@@ -59,14 +69,11 @@ class LevelingHelperPanel extends PluginPanel
 
 		JPanel top = column();
 		top.add(text("Leveling Helper", TEXT));
-		top.add(text("Pick a skill. A yellow arrow marks the next bank, tree, or NPC.", DIM));
+		top.add(text("Pick a skill. Follow the highlighted training steps.", DIM));
 		top.add(Box.createVerticalStrut(6));
 		top.add(labeled("Account", mode));
 		top.add(labeled("Style", style));
 		top.add(labeled("Goal", goal));
-		JButton match = button("Match account");
-		match.addActionListener(event -> plugin.detectMembership());
-		top.add(match);
 		top.add(Box.createVerticalStrut(6));
 		styleSkills();
 		top.add(skills);
@@ -104,6 +111,11 @@ class LevelingHelperPanel extends PluginPanel
 	{
 		suppress = true;
 		mode.setSelectedItem(accountMode);
+		if (displayedMode != accountMode)
+		{
+			displayedMode = accountMode;
+			filterSkills(accountMode);
+		}
 		style.setSelectedItem(trainingStyle);
 		goal.setValue(goalLevel);
 		JToggleButton button = skillButtons.get(skill);
@@ -129,7 +141,9 @@ class LevelingHelperPanel extends PluginPanel
 			+ snapshot.stepIndex()
 			+ snapshot.alternatives().toString()
 			+ snapshot.preparation()
-			+ snapshot.lockedRoutes();
+			+ snapshot.lockedRoutes()
+			+ snapshot.itemsReady()
+			+ (snapshot.preparationStep() == null ? "" : snapshot.preparationStep().instruction());
 		if (!next.equals(signature) || statsLabel == null)
 		{
 			signature = next;
@@ -145,8 +159,10 @@ class LevelingHelperPanel extends PluginPanel
 	private void rebuild(GuideSnapshot snapshot)
 	{
 		detail.removeAll();
-		detail.add(text(snapshot.status(), snapshot.status().startsWith("You are on a free") || snapshot.status().contains("members skill") ? WARN : DIM));
-		detail.add(controls(snapshot));
+		if (!snapshot.status().isEmpty())
+		{
+			detail.add(text(snapshot.status(), snapshot.status().startsWith("You are on a free") ? WARN : DIM));
+		}
 		detail.add(Box.createVerticalStrut(6));
 		if (snapshot.method() == null)
 		{
@@ -162,17 +178,27 @@ class LevelingHelperPanel extends PluginPanel
 			int stepIndex = snapshot.running()
 				? Math.min(snapshot.stepIndex(), method.steps().size() - 1)
 				: 0;
-			GuideStep currentStep = method.steps().get(stepIndex);
-			String heading = currentStep.instruction();
+			GuideStep currentStep = snapshot.preparationStep() == null ? method.steps().get(stepIndex) : snapshot.preparationStep();
+			String heading = currentStep.kind() == StepKind.BANK && snapshot.itemsReady() && method.preparationFreeSlots() >= 0 && !method.items().isEmpty()
+				? "Tools and supplies detected. Deposit items if needed, then close the bank." : currentStep.instruction();
 			detail.add(text(heading, new Color(255, 214, 120)));
 		}
 		detail.add(text(method.summary(), TEXT));
 		if (!snapshot.preparation().isEmpty())
 		{
-			detail.add(text("Before training", TEXT));
+			detail.add(text("Supplies and preparation", TEXT));
 			for (String requirement : snapshot.preparation())
 			{
-				detail.add(text(requirement, WARN));
+				Color color = WARN;
+				if (requirement.startsWith("Ready:"))
+				{
+					color = new Color(120, 220, 150);
+				}
+				else if (requirement.startsWith("Ready checks") || requirement.startsWith("To level"))
+				{
+					color = DIM;
+				}
+				detail.add(text(requirement, color));
 			}
 		}
 		statsLabel = text(stats(snapshot), DIM);
@@ -206,7 +232,7 @@ class LevelingHelperPanel extends PluginPanel
 		}
 		detail.add(Box.createVerticalStrut(8));
 		detail.add(text("Steps", TEXT));
-		int index = snapshot.running() ? snapshot.stepIndex() : -1;
+		int index = snapshot.running() && snapshot.preparationStep() == null ? snapshot.stepIndex() : -1;
 		int number = 1;
 		for (GuideStep step : method.steps())
 		{
@@ -217,8 +243,18 @@ class LevelingHelperPanel extends PluginPanel
 			{
 				color = current ? new Color(255, 140, 110) : WARN;
 			}
-			detail.add(text(prefix + step.instruction(), color));
+			String instruction = step.instruction();
+			if (step.kind() == StepKind.BANK && method.preparationFreeSlots() >= 0 && !method.items().isEmpty() && snapshot.itemsReady())
+			{
+				instruction = "Tools and supplies detected. Bank only to restock or deposit items.";
+			}
+			detail.add(text(prefix + instruction, color));
 			number++;
+		}
+		if (snapshot.running())
+		{
+			detail.add(Box.createVerticalStrut(6));
+			detail.add(controls());
 		}
 		if (method.loopFrom() > 0)
 		{
@@ -279,13 +315,17 @@ class LevelingHelperPanel extends PluginPanel
 		{
 			text.append("Goal ").append(snapshot.goal());
 		}
-		text.append("\nTypical ").append(TrainingMath.rate(method.xpPerHour()));
+		if (method.xpPerHour() > 0)
+		{
+			text.append("\nTypical ").append(TrainingMath.rate(method.xpPerHour()));
+		}
 		if (method.xpEach() > 0 && xpToGoal > 0)
 		{
 			int actions = TrainingMath.actions(xpToGoal, method.xpEach());
+			text.append("\nAbout ").append(String.format("%,d", TrainingMath.actions(xpToLevel, method.xpEach()))).append(" actions to the next level");
 			text.append("\nAbout ").append(String.format("%,d", actions)).append(" actions to the goal");
 		}
-		if (xpToGoal > 0)
+		if (xpToGoal > 0 && method.xpPerHour() > 0)
 		{
 			text.append("\nAbout ").append(TrainingMath.duration(TrainingMath.millis(xpToGoal, method.xpPerHour()))).append(" at the typical rate");
 		}
@@ -332,6 +372,21 @@ class LevelingHelperPanel extends PluginPanel
 		}
 	}
 
+	private void filterSkills(AccountMode accountMode)
+	{
+		skills.removeAll();
+		for (Skill skill : Skill.values())
+		{
+			JToggleButton button = skillButtons.get(skill);
+			if (button != null && (accountMode == AccountMode.P2P || !skill.isMembers()))
+			{
+				skills.add(button);
+			}
+		}
+		skills.revalidate();
+		skills.repaint();
+	}
+
 	private JPanel labeled(String name, Component field)
 	{
 		JPanel row = new JPanel(new BorderLayout(6, 0));
@@ -347,48 +402,37 @@ class LevelingHelperPanel extends PluginPanel
 
 	private JPanel column()
 	{
-		JPanel panel = new JPanel();
+		JPanel panel = new JPanel()
+		{
+			@Override
+			public Dimension getMaximumSize()
+			{
+				return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+			}
+		};
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 		panel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return panel;
 	}
 
-	private JPanel controls(GuideSnapshot snapshot)
+	private JPanel controls()
 	{
-		JPanel box = column();
-		JButton start = button(snapshot.running() ? "Stop guiding" : "Start guiding");
-		start.addActionListener(event ->
-		{
-			if (snapshot.running())
-			{
-				plugin.stopGuide();
-			}
-			else
-			{
-				plugin.startGuide();
-			}
-		});
-		box.add(start);
-		if (snapshot.running())
-		{
-			JPanel row = new JPanel(new GridLayout(1, 3, 4, 0));
-			row.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			row.setAlignmentX(Component.LEFT_ALIGNMENT);
-			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
-			JButton back = button("Back");
-			JButton next = button("Next");
-			JButton bank = button("Bank");
-			back.addActionListener(event -> plugin.previousStep());
-			next.addActionListener(event -> plugin.nextStep());
-			bank.addActionListener(event -> plugin.bankStep());
-			row.add(back);
-			row.add(next);
-			row.add(bank);
-			box.add(Box.createVerticalStrut(4));
-			box.add(row);
-		}
-		return box;
+		JPanel row = new JPanel(new GridLayout(1, 3, 4, 0));
+		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+		JButton back = button("Previous");
+		JButton next = button("Next");
+		JButton bank = button("Bank");
+		back.setMargin(new Insets(1, 2, 1, 2));
+		back.addActionListener(event -> plugin.previousStep());
+		next.addActionListener(event -> plugin.nextStep());
+		bank.addActionListener(event -> plugin.bankStep());
+		row.add(back);
+		row.add(next);
+		row.add(bank);
+		return row;
 	}
 
 	private WrapLabel text(String value, Color color)
@@ -420,8 +464,6 @@ class LevelingHelperPanel extends PluginPanel
 		{
 			super(html);
 			setForeground(color);
-			putClientProperty(BasicHTML.propertyKey, null);
-			setText(html);
 		}
 
 		@Override

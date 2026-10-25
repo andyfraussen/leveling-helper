@@ -1,8 +1,6 @@
 package com.levelinghelper;
 
-import com.levelinghelper.guide.DirectionArrow;
 import com.levelinghelper.guide.GuideController;
-import com.levelinghelper.guide.TrainingMath;
 import com.levelinghelper.model.GuideStep;
 import com.levelinghelper.model.TrainingMethod;
 import java.awt.BasicStroke;
@@ -19,7 +17,8 @@ import net.runelite.api.GameObject;
 import net.runelite.api.GameState;
 import net.runelite.api.GroundObject;
 import net.runelite.api.NPC;
-import net.runelite.api.Player;
+import net.runelite.api.Perspective;
+import net.runelite.api.Point;
 import net.runelite.api.TileObject;
 import net.runelite.api.WallObject;
 import net.runelite.api.coords.LocalPoint;
@@ -53,7 +52,7 @@ class LevelingHelperOverlay extends Overlay
 		{
 			return null;
 		}
-		GuideStep step = controller.current();
+		GuideStep step = plugin.currentStep();
 		TrainingMethod method = controller.method();
 		if (step == null || method == null)
 		{
@@ -62,7 +61,7 @@ class LevelingHelperOverlay extends Overlay
 		Color color = config.highlightColor();
 		if (config.showTiles())
 		{
-			renderTile(graphics, step.target(), color);
+			renderTile(graphics, plugin.guidanceTarget(), color);
 		}
 		if (config.showObjects())
 		{
@@ -70,11 +69,7 @@ class LevelingHelperOverlay extends Overlay
 		}
 		if (config.showArrow())
 		{
-			renderArrow(graphics, step.target(), color);
-		}
-		if (config.showOverlay())
-		{
-			renderBox(graphics, method, step, color);
+			renderArrow(graphics, plugin.guidanceTarget(), color);
 		}
 		return null;
 	}
@@ -90,7 +85,7 @@ class LevelingHelperOverlay extends Overlay
 		{
 			return;
 		}
-		Polygon polygon = net.runelite.api.Perspective.getCanvasTilePoly(client, local);
+		Polygon polygon = Perspective.getCanvasTilePoly(client, local);
 		if (polygon != null)
 		{
 			OverlayUtil.renderPolygon(graphics, polygon, color, new Color(color.getRed(), color.getGreen(), color.getBlue(), 40), new BasicStroke(2));
@@ -119,62 +114,58 @@ class LevelingHelperOverlay extends Overlay
 
 	private void renderArrow(Graphics2D graphics, WorldPoint target, Color color)
 	{
-		Player player = client.getLocalPlayer();
-		if (player == null || target == null || player.getWorldLocation().getPlane() != target.getPlane())
+		if (target == null || target.getPlane() != client.getPlane())
 		{
 			return;
 		}
+		Point anchor = targetAnchor(target);
+		if (anchor == null)
+		{
+			return;
+		}
+		// A small downward arrow above the target, rather than a screen-edge triangle.
+		int x = anchor.getX();
+		int y = anchor.getY();
+		Polygon arrow = new Polygon(new int[]{x - 4, x + 4, x + 4, x + 10, x, x - 10, x - 4},
+			new int[]{y - 27, y - 27, y - 14, y - 14, y - 4, y - 14, y - 14}, 7);
 		Rectangle viewport = new Rectangle(client.getViewportXOffset(), client.getViewportYOffset(),
 			client.getViewportWidth(), client.getViewportHeight());
-		LocalPoint local = LocalPoint.fromWorld(client, target);
-		Polygon tile = local == null ? null : net.runelite.api.Perspective.getCanvasTilePoly(client, local);
-		if (tile != null && tile.intersects(viewport))
+		if (!viewport.contains(arrow.getBounds()))
 		{
 			return;
 		}
-		Polygon triangle = DirectionArrow.polygon(target.getX() - player.getWorldLocation().getX(),
-			target.getY() - player.getWorldLocation().getY(), client.getCameraYaw(), viewport);
-		if (triangle == null)
-		{
-			return;
-		}
-		graphics.setColor(color);
-		graphics.fill(triangle);
+		Graphics2D marker = (Graphics2D) graphics.create();
+		marker.setColor(color);
+		marker.fill(arrow);
+		marker.setColor(Color.BLACK);
+		marker.setStroke(new BasicStroke(2));
+		marker.draw(arrow);
+		marker.dispose();
 	}
 
-	private void renderBox(Graphics2D graphics, TrainingMethod method, GuideStep step, Color color)
+	private Point targetAnchor(WorldPoint target)
 	{
-		Player player = client.getLocalPlayer();
-		int level = player == null ? 1 : client.getRealSkillLevel(method.skill());
-		String distance = step.target() == null || player == null
-			? ""
-			: TrainingMath.direction(player.getWorldLocation(), step.target());
-		String[] lines = new String[]{
-			method.skill().getName() + "  " + level + " / " + config.goalLevel(),
-			method.name() + "   step " + (plugin.controller().stepIndex() + 1) + "/" + method.steps().size(),
-			trim(step.instruction(), 52),
-			distance.isEmpty() ? "Follow the step in the side panel" : distance,
-			"Typical " + TrainingMath.rate(method.xpPerHour())
-		};
-		graphics.setFont(graphics.getFont().deriveFont(12f));
-		int width = 230;
-		for (String line : lines)
+		for (NPC npc : plugin.highlightedNpcs())
 		{
-			width = Math.max(width, graphics.getFontMetrics().stringWidth(line) + 16);
+			if (target.equals(npc.getWorldLocation()))
+			{
+				return Perspective.localToCanvas(client, npc.getLocalLocation(), target.getPlane(), npc.getLogicalHeight() + 40);
+			}
 		}
-		int height = 14 + lines.length * 15;
-		graphics.setColor(new Color(12, 16, 14, 210));
-		graphics.fillRoundRect(8, 8, width, height, 8, 8);
-		graphics.setColor(color);
-		graphics.setStroke(new BasicStroke(1.5f));
-		graphics.drawRoundRect(8, 8, width, height, 8, 8);
-		int y = 24;
-		for (int i = 0; i < lines.length; i++)
+		for (TileObject object : plugin.highlightedObjects())
 		{
-			graphics.setColor(i == 2 ? Color.WHITE : new Color(210, 225, 215));
-			graphics.drawString(lines[i], 16, y);
-			y += 15;
+			if (target.equals(object.getWorldLocation()))
+			{
+				Shape shape = hull(object);
+				if (shape != null)
+				{
+					Rectangle bounds = shape.getBounds();
+					return new Point((int) bounds.getCenterX(), bounds.y - 4);
+				}
+			}
 		}
+		LocalPoint local = LocalPoint.fromWorld(client, target);
+		return local == null ? null : Perspective.localToCanvas(client, local, target.getPlane(), 100);
 	}
 
 	private static Shape hull(TileObject object)
@@ -196,19 +187,5 @@ class LevelingHelperOverlay extends Overlay
 			return ((DecorativeObject) object).getConvexHull();
 		}
 		return null;
-	}
-
-	private static String trim(String text, int max)
-	{
-		if (text == null)
-		{
-			return "";
-		}
-		String flat = text.replace('\n', ' ');
-		if (flat.length() <= max)
-		{
-			return flat;
-		}
-		return flat.substring(0, max - 3) + "...";
 	}
 }

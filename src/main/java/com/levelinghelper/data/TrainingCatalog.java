@@ -1,6 +1,7 @@
 package com.levelinghelper.data;
 
 import com.levelinghelper.model.TrainingMethod;
+import com.levelinghelper.model.TrainingStyle;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -30,6 +31,11 @@ public final class TrainingCatalog
 			{
 				return method;
 			}
+			TrainingMethod banking = method.forStyle(TrainingStyle.PROFIT);
+			if (banking.id().equals(id))
+			{
+				return banking;
+			}
 		}
 		return null;
 	}
@@ -41,6 +47,7 @@ public final class TrainingCatalog
 		GatheringMethods.register(all);
 		ProductionMethods.register(all);
 		SupportMethods.register(all);
+		all.replaceAll(RoutePreparation::review);
 		return Collections.unmodifiableList(all);
 	}
 }

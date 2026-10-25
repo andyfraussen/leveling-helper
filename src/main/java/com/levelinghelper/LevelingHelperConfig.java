@@ -14,17 +14,6 @@ public interface LevelingHelperConfig extends Config
 	String GROUP = "levelinghelper";
 
 	@ConfigItem(
-		keyName = "showOverlay",
-		name = "Show guide box",
-		description = "Show the current step, distance, and XP rates on the game view.",
-		position = 1
-	)
-	default boolean showOverlay()
-	{
-		return true;
-	}
-
-	@ConfigItem(
 		keyName = "showTiles",
 		name = "Mark the destination",
 		description = "Highlight the tile you are walking to.",
@@ -48,8 +37,8 @@ public interface LevelingHelperConfig extends Config
 
 	@ConfigItem(
 		keyName = "showArrow",
-		name = "Direction arrow",
-		description = "Point toward the destination when it is off screen.",
+		name = "Target arrows",
+		description = "Show a target arrow in the scene and a direction marker on the minimap.",
 		position = 4
 	)
 	default boolean showArrow()

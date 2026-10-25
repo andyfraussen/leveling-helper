@@ -83,6 +83,8 @@ final class GatheringMethods
 	private static void chop(List<TrainingMethod> out, String name, int min, int max, AccountMode mode, TrainingStyle[] styles, int priority, double xpEach, int xpHr, String summary, String wiki, WorldPoint bank, WorldPoint trees, boolean bankLogs, String... highlights)
 	{
 		TrainingMethod.Builder builder = TrainingMethod.builder(out, Skill.WOODCUTTING, name)
+			.item(Tools.axe())
+			.itemPreparation(1)
 			.levels(min, max)
 			.modes(mode)
 			.styles(styles)
@@ -94,7 +96,7 @@ final class GatheringMethods
 			.opt("Forestry events are optional. The official Forestry plugin tracks them. They are not required for this route.")
 			.opt("Tick manipulation, such as 1.5-tick teaks, is much faster and much more clicking. This route does not use it.")
 			.loop(0)
-			.step(GuideSteps.bank("Withdraw your best axe and deposit the logs. Equip the axe if you want the inventory space.", bank))
+			.step(GuideSteps.bank("Prepare a usable axe and deposit the logs. The axe can be carried or equipped.", bank))
 			.step(GuideSteps.travel("Walk to the trees. They are highlighted when you get close.", trees, 18, highlights));
 		if (bankLogs)
 		{
@@ -140,6 +142,8 @@ final class GatheringMethods
 			"Iron ore", Spots.AL_KHARID_MINE, "Rocks");
 
 		TrainingMethod.builder(out, Skill.MINING, "Motherlode Mine")
+			.item(Tools.pickaxe())
+			.itemPreparation(1)
 			.levels(30, 91)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.AFK, TrainingStyle.PROFIT)
@@ -158,6 +162,8 @@ final class GatheringMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.MINING, "Motherlode upper level")
+			.item(Tools.pickaxe())
+			.itemPreparation(1)
 			.prepare("Buy upper-level access from Prospector Percy for 100 golden nuggets. Stay on the lower level until purchased.")
 			.levels(57, 91)
 			.modes(AccountMode.P2P)
@@ -175,9 +181,11 @@ final class GatheringMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.MINING, "Volcanic Mine")
+			.item(Tools.pickaxe())
+			.itemPreparation(1)
 			.quest(Quest.BONE_VOYAGE)
 			.risk(RouteRisk.DANGEROUS)
-			.prepare("Check entry with Petrified Pete: 150 Kudos, Museum Camp built and Peter rewards claimed. Each entry costs 30 numulites.")
+			.prepare("Check entry with Petrified Pete: each entry costs 30 numulites, or unlock permanent access for 3,000 numulites.")
 			.levels(50, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
@@ -193,6 +201,8 @@ final class GatheringMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.MINING, "Amethyst")
+			.item(Tools.pickaxe())
+			.itemPreparation(1)
 			.levels(92, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED, TrainingStyle.AFK, TrainingStyle.PROFIT)
@@ -216,6 +226,8 @@ final class GatheringMethods
 	{
 		WorldPoint bank = spot == Spots.LUMBRIDGE_SWAMP_MINE ? Spots.LUMBRIDGE_BANK : Spots.AL_KHARID_BANK;
 		TrainingMethod.Builder builder = TrainingMethod.builder(out, Skill.MINING, name)
+			.item(Tools.pickaxe())
+			.itemPreparation(1)
 			.levels(min, max)
 			.modes(mode)
 			.styles(styles)
@@ -228,13 +240,18 @@ final class GatheringMethods
 				: "Use the best pickaxe you can. Dropping is more XP than banking.")
 			.loop(bankOre ? 0 : 1)
 			.step(GuideSteps.bank(bankOre
-				? "Withdraw your best pickaxe and deposit the ore."
-				: "Withdraw your best pickaxe. Deposit ore if you are banking it.", bank))
+				? "Prepare a usable pickaxe and deposit the ore."
+				: "Prepare a usable pickaxe. Deposit ore if you are banking it.", bank))
 			.step(GuideSteps.travel("Walk to the rocks.", spot, 15, highlights).objectIds(oreIds(name)))
 			.step(GuideSteps.train("Mine until the inventory is full.", spot, AdvanceWhen.INVENTORY_FULL, highlights).objectIds(oreIds(name)));
 		if (!bankOre)
 		{
 			builder.step(GuideSteps.drop("Drop the ore. Shift-click drop is in the game settings. The guide continues when the inventory has space again."));
+			builder.banking("Mine " + name.toLowerCase(java.util.Locale.ROOT)
+				+ " at the highlighted rocks. Keep the ore and deposit it at the bank when full, then return to the rocks.",
+				GuideSteps.bank("Deposit the ore and keep your pickaxe. Close the bank when you have inventory space.", bank),
+				GuideSteps.travel("Return to the highlighted rocks.", spot, 15, highlights).objectIds(oreIds(name)),
+				GuideSteps.train("Mine until the inventory is full, then return to the bank.", spot, AdvanceWhen.INVENTORY_FULL, highlights).objectIds(oreIds(name)));
 		}
 		builder.save();
 	}
@@ -294,6 +311,7 @@ final class GatheringMethods
 			.step(GuideSteps.drop("Drop the leaping fish. Keep the rod and bait."))
 			.save();
 		TrainingMethod.builder(out, Skill.FISHING, "Tempoross")
+			.tool("Harpoon", ItemID.HARPOON, ItemID.DRAGON_HARPOON, ItemID.DRAGON_HARPOON_OR, ItemID.INFERNAL_HARPOON, ItemID.INFERNAL_HARPOON_UNCHARGED)
 			.levels(35, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
@@ -341,6 +359,23 @@ final class GatheringMethods
 			.loop(bankFish ? 0 : 2)
 			.step(GuideSteps.bank(bankText, bank))
 			.step(GuideSteps.travel("Walk to the fishing spot.", spot, 18, "Fishing spot"));
+		if (name.equals("Trout and salmon") || name.equals("Fly fishing"))
+		{
+			builder.tool("Fly fishing rod", ItemID.FLY_FISHING_ROD, ItemID.PEARL_FLY_FISHING_ROD)
+				.item(Materials.supply("Feathers", 1)).itemPreparation(1);
+		}
+		else if (name.equals("Lobsters"))
+		{
+			builder.tool("Lobster pot", ItemID.LOBSTER_POT);
+		}
+		else if (name.equals("Swordfish"))
+		{
+			builder.tool("Harpoon", ItemID.HARPOON, ItemID.DRAGON_HARPOON);
+		}
+		else
+		{
+			builder.tool("Small fishing net", ItemID.SMALL_FISHING_NET).itemPreparation(1);
+		}
 		if (bankFish)
 		{
 			builder.step(GuideSteps.train("Fish until the inventory is full, then bank.", spot, AdvanceWhen.INVENTORY_FULL, "Fishing spot"));
@@ -349,19 +384,14 @@ final class GatheringMethods
 		{
 			builder.step(GuideSteps.train("Fish until the inventory is full.", spot, AdvanceWhen.INVENTORY_FULL, "Fishing spot"));
 			builder.step(GuideSteps.drop("Drop the fish. Keep the rod and the feathers."));
+			builder.banking("Fish at the highlighted spot. Keep the fish and deposit them at the bank when full, then return to the fishing spot.",
+				GuideSteps.bank("Deposit the fish and keep your fishing tool and bait. Close the bank when you have inventory space.", bank),
+				GuideSteps.travel("Return to the fishing spot.", spot, 18, "Fishing spot"),
+				GuideSteps.train("Fish until the inventory is full, then return to the bank.", spot, AdvanceWhen.INVENTORY_FULL, "Fishing spot"));
 		}
 		if (name.equals("Monkfish"))
 		{
 			builder.quest(Quest.SWAN_SONG);
-		}
-		if (name.startsWith("Shrimp"))
-		{
-			builder.supplies("Small fishing net", 1, ItemID.SMALL_FISHING_NET);
-		}
-		if (name.equals("Fly fishing") || name.equals("Trout and salmon"))
-		{
-			builder.tool("Fly fishing rod", ItemID.FLY_FISHING_ROD, ItemID.PEARL_FLY_FISHING_ROD)
-				.supplies("Feathers", 1, ItemID.FEATHER);
 		}
 		builder.save();
 	}

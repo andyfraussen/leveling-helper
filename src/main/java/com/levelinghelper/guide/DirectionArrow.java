@@ -9,10 +9,10 @@ public final class DirectionArrow
 	{
 	}
 
-	/** Camera yaw uses RuneLite's 14-bit Jagex angle units. */
-	public static Polygon polygon(int dx, int dy, int yaw, Rectangle viewport)
+	/** Clamp a minimap direction marker inside the circular map. Yaw uses 14-bit Jagex units. */
+	public static Polygon polygon(double dx, double dy, int yaw, Rectangle minimap)
 	{
-		if (dx == 0 && dy == 0 || viewport.width < 32 || viewport.height < 32)
+		if (dx == 0 && dy == 0 || minimap.width < 32 || minimap.height < 32)
 		{
 			return null;
 		}
@@ -22,17 +22,19 @@ public final class DirectionArrow
 		double length = Math.hypot(x, y);
 		double ux = x / length;
 		double uy = y / length;
-		double margin = Math.min(48, Math.min(viewport.width, viewport.height) / 4.0);
-		double reachX = Math.abs(ux) < 1e-9 ? Double.POSITIVE_INFINITY : (viewport.width / 2.0 - margin) / Math.abs(ux);
-		double reachY = Math.abs(uy) < 1e-9 ? Double.POSITIVE_INFINITY : (viewport.height / 2.0 - margin) / Math.abs(uy);
-		double reach = Math.min(reachX, reachY);
-		double cx = viewport.getCenterX() + ux * reach;
-		double cy = viewport.getCenterY() + uy * reach;
-		int size = (int) Math.min(16, margin / 2);
+		double radius = Math.min(minimap.width, minimap.height) / 2.0 - 12;
+		double reach = Math.min(length, radius);
+		double cx = minimap.getCenterX() + ux * reach;
+		double cy = minimap.getCenterY() + uy * reach;
+		// Shaft and arrowhead, facing the destination. The black outline is added by the overlay.
+		int[] along = {-7, 0, 0, 8, 0, 0, -7};
+		int[] across = {-3, -3, -7, 0, 7, 3, 3};
 		Polygon arrow = new Polygon();
-		arrow.addPoint((int) (cx + ux * size), (int) (cy + uy * size));
-		arrow.addPoint((int) (cx - ux * size - uy * size / 2), (int) (cy - uy * size + ux * size / 2));
-		arrow.addPoint((int) (cx - ux * size + uy * size / 2), (int) (cy - uy * size - ux * size / 2));
+		for (int i = 0; i < along.length; i++)
+		{
+			arrow.addPoint((int) Math.round(cx + ux * along[i] - uy * across[i]),
+				(int) Math.round(cy + uy * along[i] + ux * across[i]));
+		}
 		return arrow;
 	}
 }

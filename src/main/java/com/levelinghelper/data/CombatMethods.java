@@ -166,7 +166,7 @@ final class CombatMethods
 			.priority(6)
 			.req(Skill.SLAYER, 65)
 			.quest(Quest.DESERT_TREASURE_I)
-			.equipment("Facemask or any Slayer helmet", Equipment.DUST_PROTECTION)
+			.equipmentFrom("Facemask or any Slayer helmet", "Buy a facemask from a Slayer equipment shop, such as a Slayer master's shop.", Equipment.DUST_PROTECTION)
 			.risk(RouteRisk.DANGEROUS)
 			.prepare("Switch to Ancient Magicks. Bring enough runes for your session, prayer potions and food.")
 			.xp(0, 180000)
@@ -187,7 +187,7 @@ final class CombatMethods
 			.priority(7)
 			.req(Skill.SLAYER, 65)
 			.quest(Quest.DESERT_TREASURE_I)
-			.equipment("Facemask or any Slayer helmet", Equipment.DUST_PROTECTION)
+			.equipmentFrom("Facemask or any Slayer helmet", "Buy a facemask from a Slayer equipment shop, such as a Slayer master's shop.", Equipment.DUST_PROTECTION)
 			.risk(RouteRisk.DANGEROUS)
 			.prepare("Switch to Ancient Magicks. Bring enough runes for your session, prayer potions and food.")
 			.xp(0, 280000)
@@ -221,6 +221,8 @@ final class CombatMethods
 	private static void prayer(List<TrainingMethod> out)
 	{
 		TrainingMethod.builder(out, Skill.PRAYER, "Bury big bones")
+			.item(Materials.supply("Big bones", 1))
+			.itemPreparation(0)
 			.levels(1, 99)
 			.modes(AccountMode.F2P)
 			.styles(ALL)
@@ -235,6 +237,8 @@ final class CombatMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.PRAYER, "Gilded altar")
+			.item(Materials.supply("Dragon bones", 1))
+			.itemPreparation(0)
 			.levels(1, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.BALANCED)
@@ -252,7 +256,7 @@ final class CombatMethods
 
 		TrainingMethod.builder(out, Skill.PRAYER, "Chaos altar")
 			.risk(RouteRisk.WILDERNESS)
-			.supplies("Unnoted dragon bones", 1, ItemID.DRAGON_BONES)
+			.item(Materials.supply("Dragon bones", 1))
 			.levels(1, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.FAST)
@@ -269,6 +273,8 @@ final class CombatMethods
 			.save();
 
 		TrainingMethod.builder(out, Skill.PRAYER, "Bury dragon bones")
+			.item(Materials.supply("Dragon bones", 1))
+			.itemPreparation(0)
 			.levels(1, 99)
 			.modes(AccountMode.P2P)
 			.styles(TrainingStyle.AFK, TrainingStyle.PROFIT)

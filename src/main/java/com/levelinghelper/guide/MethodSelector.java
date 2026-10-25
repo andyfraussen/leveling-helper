@@ -31,20 +31,25 @@ public final class MethodSelector
 		TrainingMethod picked = best(pool, style);
 		if (picked != null)
 		{
-			return picked;
+			return picked.forStyle(style);
 		}
 		for (TrainingStyle fallback : fallbacks(style))
 		{
 			picked = best(pool, fallback);
 			if (picked != null)
 			{
-				return picked;
+				return picked.forStyle(style);
 			}
 		}
 		return null;
 	}
 
 	public static List<TrainingMethod> alternatives(List<TrainingMethod> all, Skill skill, AccountMode mode, int level, LevelLookup lookup)
+	{
+		return alternatives(all, skill, mode, TrainingStyle.BALANCED, level, lookup);
+	}
+
+	public static List<TrainingMethod> alternatives(List<TrainingMethod> all, Skill skill, AccountMode mode, TrainingStyle style, int level, LevelLookup lookup)
 	{
 		List<TrainingMethod> pool = new ArrayList<TrainingMethod>();
 		for (TrainingMethod method : all)
@@ -57,7 +62,7 @@ public final class MethodSelector
 			{
 				continue;
 			}
-			pool.add(method);
+			pool.add(method.forStyle(style));
 		}
 		return pool;
 	}

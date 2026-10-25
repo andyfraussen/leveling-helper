@@ -54,6 +54,12 @@ public final class GuideStep
 		this.npcIds = Set.copyOf(npcIds);
 	}
 
+	public GuideStep describedAs(String instruction, AdvanceWhen advance)
+	{
+		return new GuideStep(instruction, kind, target, arrivalRadius, highlightRadius, advance, highlightMode,
+			names, watchedItem, objectIds, npcIds);
+	}
+
 	public String instruction()
 	{
 		return instruction;
