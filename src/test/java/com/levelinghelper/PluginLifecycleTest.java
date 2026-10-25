@@ -397,10 +397,12 @@ public class PluginLifecycleTest
 	}
 
 	@Test
-	public void missingInventoryWaitsInsteadOfSendingThePlayerToBank()
+	public void inventoryBeforeTheFirstSynchronizedTickWaitsInsteadOfGuessing()
 	{
 		doReturn(null).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.INV);
-		plugin.onGameTick(new GameTick());
+		plugin.setAccountMode(AccountMode.F2P);
+		plugin.setSkill(Skill.MINING);
+		thread.drain();
 		assertTrue(plugin.currentStep().instruction().startsWith("Waiting for inventory"));
 		assertNull(plugin.guidanceTarget());
 	}
@@ -653,6 +655,93 @@ public class PluginLifecycleTest
 		assertTrue(plugin.currentStep().instruction().startsWith("Obtain"));
 		assertTrue(plugin.currentStep().instruction().contains("recovered at their source"));
 		assertNull(plugin.guidanceTarget());
+	}
+
+	@Test
+	public void loginWithEmptyInventoryAndWornPickaxeDoesNotRequireCyclingEquipment()
+	{
+		when(config.autoAdvance()).thenReturn(true);
+		doReturn(null).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.INV);
+		doReturn(SupplyTrackerTest.container(new Item(ItemID.RUNE_PICKAXE, 1))).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.WORN);
+		net.runelite.api.widgets.Widget bank = mock(net.runelite.api.widgets.Widget.class);
+		when(client.getWidget(net.runelite.api.gameval.InterfaceID.Bankmain.ITEMS)).thenReturn(bank);
+		plugin.setAccountMode(AccountMode.F2P); plugin.setSkill(Skill.MINING); thread.drain();
+		plugin.onGameTick(new GameTick());
+		assertEquals(StepKind.BANK, plugin.currentStep().kind());
+		assertFalse(plugin.currentStep().instruction().contains("Waiting"));
+		when(bank.isHidden()).thenReturn(true);
+		plugin.onGameTick(new GameTick());
+		assertEquals(StepKind.TRAVEL, plugin.currentStep().kind());
+		// Still no inventory container and no equipment-change event was necessary.
+		assertNull(client.getItemContainer(net.runelite.api.gameval.InventoryID.INV));
+	}
+
+	@Test
+	public void absentInventoryContainerStillAllowsCheckingForAMissingToolInTheOpenBank()
+	{
+		doReturn(null).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.INV);
+		doReturn(null).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.WORN);
+		doReturn(SupplyTrackerTest.container(new Item(ItemID.RUNE_PICKAXE, 1))).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.BANK);
+		net.runelite.api.widgets.Widget bank = mock(net.runelite.api.widgets.Widget.class);
+		when(client.getWidget(net.runelite.api.gameval.InterfaceID.Bankmain.ITEMS)).thenReturn(bank);
+		plugin.setAccountMode(AccountMode.F2P); plugin.setSkill(Skill.MINING); thread.drain();
+		plugin.onGameTick(new GameTick());
+		assertTrue(plugin.currentStep().instruction().startsWith("Withdraw"));
+		assertTrue(plugin.currentStep().instruction().contains("pickaxe"));
+	}
+
+	@Test
+	public void optionalOnlyRoutesWorkWithNoInventoryOrEquipmentContainer()
+	{
+		doReturn(null).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.INV);
+		doReturn(null).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.WORN);
+		plugin.setAccountMode(AccountMode.P2P); plugin.setSkill(Skill.AGILITY); thread.drain();
+		plugin.onGameTick(new GameTick());
+		assertEquals(StepKind.TRAVEL, plugin.currentStep().kind());
+		assertNotNull(plugin.guidanceTarget());
+	}
+
+	@Test
+	public void consumingTheLastMaterialsRestocksWhenTheInventoryNodeIsAbsent()
+	{
+		when(config.autoAdvance()).thenReturn(true);
+		when(client.getRealSkillLevel(Skill.FLETCHING)).thenReturn(60);
+		doReturn(SupplyTrackerTest.container(new Item(ItemID.MITHRIL_DART_TIP, 10), new Item(ItemID.FEATHER, 10)))
+			.when(client).getItemContainer(net.runelite.api.gameval.InventoryID.INV);
+		plugin.setAccountMode(AccountMode.P2P); plugin.setSkill(Skill.FLETCHING); plugin.setTrainingStyle(TrainingStyle.FAST); thread.drain();
+		assertEquals(StepKind.TRAIN, plugin.currentStep().kind());
+		doReturn(null).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.INV);
+		plugin.onGameTick(new GameTick());
+		assertEquals(StepKind.BANK, plugin.currentStep().kind());
+		assertTrue(plugin.currentStep().instruction().contains("Feathers"));
+		assertFalse(plugin.currentStep().instruction().contains("Waiting"));
+	}
+
+	@Test
+	public void logoutClearsInventorySynchronizationUntilTheNewLoginReceivesATick()
+	{
+		doReturn(null).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.INV);
+		plugin.setAccountMode(AccountMode.F2P); plugin.setSkill(Skill.MINING); thread.drain();
+		plugin.onGameTick(new GameTick());
+		assertFalse(plugin.currentStep().instruction().contains("Waiting"));
+		GameStateChanged logout = new GameStateChanged(); logout.setGameState(GameState.LOGIN_SCREEN);
+		when(client.getGameState()).thenReturn(GameState.LOGIN_SCREEN); plugin.onGameStateChanged(logout);
+		when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+		plugin.setAccountMode(AccountMode.F2P); thread.drain();
+		assertTrue(plugin.currentStep().instruction().startsWith("Waiting"));
+		plugin.onGameTick(new GameTick());
+		assertFalse(plugin.currentStep().instruction().contains("Waiting"));
+	}
+
+	@Test
+	public void anInventoryUpdateCanEstablishKnownEmptyInventoryBeforeTheFirstGameTick()
+	{
+		when(config.autoAdvance()).thenReturn(true);
+		doReturn(null).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.INV);
+		doReturn(SupplyTrackerTest.container(new Item(ItemID.RUNE_PICKAXE, 1))).when(client).getItemContainer(net.runelite.api.gameval.InventoryID.WORN);
+		plugin.onItemContainerChanged(new ItemContainerChanged(net.runelite.api.gameval.InventoryID.INV, SupplyTrackerTest.container()));
+		plugin.setAccountMode(AccountMode.F2P); plugin.setSkill(Skill.MINING); thread.drain();
+		assertEquals(StepKind.TRAVEL, plugin.currentStep().kind());
 	}
 
 }

@@ -14,7 +14,7 @@ Quest Helper's [public implementation](https://github.com/Zoinkwiz/quest-helper)
 
 ## Validation
 
-Local build and all 102 tests pass against RuneLite 1.13.4. The refreshed `latest.release` build resolves to the same version. The sidebar was rendered with RuneLite's look and feel and visually inspected in both account modes. This also exposed and fixed initial HTML label rendering and unnecessary vertical expansion in the skill grid.
+Local build and all 108 tests pass against RuneLite 1.13.4. The refreshed `latest.release` build resolves to the same version. The sidebar was rendered with RuneLite's look and feel and visually inspected in both account modes. This also exposed and fixed initial HTML label rendering and unnecessary vertical expansion in the skill grid.
 
 Regression coverage exercises automatic startup/resumption, membership detection on free/member worlds, manual overrides across ticks/hops, logout/reset, F2P skill fallback, goal completion, stale queued commands, and required-equipment highlights. Minimap rendering checks cover fixed and both resizable layouts, rotation, zoom, bounds, native-arrow independence, hidden/restricted maps and other-plane suppression. Scene rendering checks cover placement above a target, offscreen/other-plane suppression, disabled arrows and removal of the floating box. Sidebar checks cover skill filtering, controls and wrapped text.
 

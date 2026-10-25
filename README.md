@@ -96,7 +96,7 @@ JAVA_HOME="$(brew --prefix openjdk@17)" ./gradlew run
 ./gradlew build
 ```
 
-The plugin targets Java 11 bytecode. Local validation against RuneLite **1.13.4** passes **102 tests**, including all catalog policies, banking loops, supply depletion, membership handling and marker/UI behavior. Selection checks cover **19,008 skill/account-mode/style/level combinations**.
+The plugin targets Java 11 bytecode. Local validation against RuneLite **1.13.4** passes **108 tests**, including all catalog policies, banking loops, supply depletion, membership handling and marker/UI behavior. Selection checks cover **19,008 skill/account-mode/style/level combinations**.
 
 CI checks RuneLite `1.13.4` and `latest.release`. To check the fixed compatibility target locally:
 

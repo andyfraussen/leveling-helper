@@ -118,6 +118,7 @@ public class LevelingHelperPlugin extends Plugin
 	private boolean forceBank;
 	private boolean requestedBankOpened;
 	private boolean departurePrepared;
+	private boolean inventorySynchronized;
 	private List<SupplyTracker.Stock> stockCache;
 	private TrainingMethod stockCacheMethod;
 	@Inject
@@ -163,6 +164,8 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			stopCurrentGuide();
 			supplies.clear();
+			inventorySynchronized = false;
+			stockCache = null;
 			mode = config.accountMode();
 			style = config.trainingStyle();
 			goal = clampGoal(config.goalLevel());
@@ -214,6 +217,9 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			return;
 		}
+		// GameTick runs after the server packets have been processed. An empty inventory
+		// need not have a container node yet, particularly when logging in with a worn tool.
+		inventorySynchronized = client.getLocalPlayer() != null;
 		stockCache = null;
 		syncMembership();
 		observeBank();
@@ -273,6 +279,8 @@ public class LevelingHelperPlugin extends Plugin
 		}
 		if (event.getGameState() != GameState.LOGGED_IN)
 		{
+			inventorySynchronized = false;
+			stockCache = null;
 			session.stop();
 			supplies.clear();
 			supplyStep = null;
@@ -699,7 +707,7 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			return "You are on a free-to-play world. Hop before you follow a members route.";
 		}
-		if (client.getItemContainer(InventoryID.INV) == null)
+		if (!inventoryKnown())
 		{
 			return "Waiting for inventory data.";
 		}
@@ -854,6 +862,12 @@ public class LevelingHelperPlugin extends Plugin
 		return bank != null && !bank.isHidden();
 	}
 
+	private boolean inventoryKnown()
+	{
+		return client.getGameState() == GameState.LOGGED_IN && client.getLocalPlayer() != null
+			&& (client.getItemContainer(InventoryID.INV) != null || inventorySynchronized);
+	}
+
 	private boolean inventoryFull()
 	{
 		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
@@ -881,7 +895,7 @@ public class LevelingHelperPlugin extends Plugin
 		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
 		if (inventory == null)
 		{
-			return false;
+			return inventoryKnown();
 		}
 		for (Item item : inventory.getItems())
 		{
@@ -958,7 +972,7 @@ public class LevelingHelperPlugin extends Plugin
 			watchedItemGone(controller.current()), targets.visible(), itemsReady(controller.method())
 				&& (controller.current() == null || controller.current().kind() != StepKind.BANK
 					|| emptySlots() >= controller.method().preparationFreeSlots()),
-			client.getItemContainer(InventoryID.INV) != null);
+			inventoryKnown());
 	}
 
 	private void primeStep()
@@ -989,7 +1003,7 @@ public class LevelingHelperPlugin extends Plugin
 
 	private boolean itemsReady(TrainingMethod method)
 	{
-		return client.getGameState() == GameState.LOGGED_IN && client.getItemContainer(InventoryID.INV) != null
+		return inventoryKnown()
 			&& requiredStock(method).stream().allMatch(SupplyTracker.Stock::ready)
 			&& (method == null || method.setupIssues(liveLookup()).isEmpty());
 	}
@@ -1010,7 +1024,7 @@ public class LevelingHelperPlugin extends Plugin
 	private List<String> supplyLines(TrainingMethod method)
 	{
 		List<String> lines = new ArrayList<>();
-		if (client.getItemContainer(InventoryID.INV) == null)
+		if (!inventoryKnown())
 		{
 			return java.util.Collections.singletonList("Waiting for inventory data before checking supplies.");
 		}
@@ -1111,6 +1125,10 @@ public class LevelingHelperPlugin extends Plugin
 		{
 			return;
 		}
+		if (event.getContainerId() == InventoryID.INV)
+		{
+			inventorySynchronized = client.getLocalPlayer() != null;
+		}
 		Player player = client.getLocalPlayer();
 		supplies.bind(player == null ? null : player.getName());
 		if (event.getContainerId() == InventoryID.BANK && (bankOpen() || supplies.bankKnown()))
@@ -1137,7 +1155,7 @@ public class LevelingHelperPlugin extends Plugin
 				missing.add(item);
 			}
 		}
-		if (client.getItemContainer(InventoryID.INV) == null)
+		if (!inventoryKnown())
 		{
 			supplyStep = GuideSteps.note("Waiting for inventory data before checking supplies.");
 		}
@@ -1254,7 +1272,7 @@ public class LevelingHelperPlugin extends Plugin
 		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
 		if (inventory == null)
 		{
-			return 0;
+			return inventoryKnown() ? INVENTORY_SIZE : 0;
 		}
 		int occupied = 0;
 		for (Item item : inventory.getItems())
